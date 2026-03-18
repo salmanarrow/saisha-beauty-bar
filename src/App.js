@@ -8,8 +8,8 @@ fontLink.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ita
 document.head.appendChild(fontLink);
 
 const CONFIG = {
-  ownerPassword:   "owner-password-here",
-  managerPassword: "manager-password-here",
+  ownerPassword:   "Saisha@38",
+  managerPassword: "Beauty@38",
   ownerName:       "Saisha",
   managerNameKey:  "sbb_manager_name",
 };
