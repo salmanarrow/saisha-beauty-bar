@@ -8,8 +8,8 @@ fontLink.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ita
 document.head.appendChild(fontLink);
 
 const CONFIG = {
-  ownerPassword:   "Saisha@123",
-  managerPassword: "Beauty@38",
+  ownerPassword:   "owner-password-here",
+  managerPassword: "manager-password-here",
   ownerName:       "Saisha",
   managerNameKey:  "sbb_manager_name",
 };
@@ -569,6 +569,10 @@ function BookingPage({onSubmit,appointments,SERVICES,showToast}) {
       return acc;
     },{});
   },[SERVICES,categories,search]);
+  const [openCats,setOpenCats]=useState({});
+  const toggleCat=(cat)=>setOpenCats(prev=>({...prev,[cat]:!prev[cat]}));
+  // Auto-open categories that have selected services or search results
+  const isCatOpen=(cat)=>!!openCats[cat]||(search.length>0)||selected.some(s=>filteredSvcs[cat]?.find(x=>x.id===s.id));
   const totalPrice=selected.reduce((s,sv)=>s+sv.price,0);
   const totalDuration=selected.reduce((s,sv)=>s+(sv.duration||0),0);
   const toggleService=(svc)=>setSelected(prev=>prev.find(s=>s.id===svc.id)?prev.filter(s=>s.id!==svc.id):[...prev,svc]);
@@ -646,34 +650,58 @@ function BookingPage({onSubmit,appointments,SERVICES,showToast}) {
                 ))}
               </div>
             )}
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search services…" style={{...S.input,marginBottom:18}}/>
-            {Object.entries(filteredSvcs).map(([cat,svcs])=>{
-              return (
-                <div key={cat} style={{marginBottom:18}}>
-                  <div style={{fontSize:9,letterSpacing:3,textTransform:"uppercase",color:T.gold,marginBottom:8,borderBottom:"1px solid #E8E8E8",paddingBottom:5}}>{cat}</div>
-                  <div style={{display:"grid",gap:6}}>
-                    {svcs.map(s=>{
-                      const sel=!!selected.find(x=>x.id===s.id);
-                      return (
-                        <button key={s.id} onClick={()=>toggleService(s)} style={{background:sel?T.charcoal:T.white,border:"1px solid "+(sel?T.charcoal:"#E8E8E8"),borderRadius:10,padding:"11px 14px",cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all .2s",width:"100%"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:9}}>
-                            <div style={{width:17,height:17,borderRadius:"50%",border:"2px solid "+(sel?"#fff":"#ccc"),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                              {sel&&<div style={{width:7,height:7,borderRadius:"50%",background:"#fff"}}/>}
-                            </div>
-                            <div>
-                              <div style={{fontSize:13,color:sel?T.white:T.charcoal,marginBottom:1}}>{s.name}</div>
-                              {s.isDeal&&s.description&&<div style={{fontSize:11,color:sel?"#aaa":T.grayLight}}>{s.description}</div>}
-                              {!s.isDeal&&<div style={{fontSize:11,color:sel?"#aaa":T.grayLight}}>{s.duration} min</div>}
-                            </div>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search services…" style={{...S.input,marginBottom:16}}/>
+            <div style={{display:"grid",gap:8}}>
+              {Object.entries(filteredSvcs).map(([cat,svcs])=>{
+                const open=isCatOpen(cat);
+                const selectedInCat=svcs.filter(s=>selected.find(x=>x.id===s.id)).length;
+                return (
+                  <div key={cat} style={{border:"1px solid #E8E8E8",borderRadius:12,overflow:"hidden",transition:"all .2s"}}>
+                    {/* Category header — tap to expand */}
+                    <button onClick={()=>toggleCat(cat)} style={{width:"100%",background:open?T.charcoal:T.white,border:"none",padding:"14px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all .25s"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <div style={{fontSize:13,color:open?T.white:T.charcoal,fontFamily:"'Jost',sans-serif",letterSpacing:".5px"}}>{cat}</div>
+                        {selectedInCat>0&&(
+                          <div style={{background:T.gold,color:T.charcoal,borderRadius:20,padding:"2px 8px",fontSize:11,fontWeight:"500"}}>
+                            {selectedInCat} selected
                           </div>
-                          <div style={{fontSize:13,fontFamily:"'Cormorant Garamond',serif",color:sel?T.gold:T.charcoal,whiteSpace:"nowrap",marginLeft:10}}>{fmt(s.price)}</div>
-                        </button>
-                      );
-                    })}
+                        )}
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{fontSize:11,color:open?"#aaa":T.grayLight}}>{svcs.length} services</div>
+                        <div style={{fontSize:16,color:open?T.gold:T.grayLight,transition:"transform .25s",transform:open?"rotate(180deg)":"rotate(0deg)",lineHeight:1}}>⌄</div>
+                      </div>
+                    </button>
+                    {/* Expanded services list */}
+                    {open&&(
+                      <div style={{borderTop:"1px solid #E8E8E8",background:T.white}}>
+                        {svcs.map((s,i)=>{
+                          const sel=!!selected.find(x=>x.id===s.id);
+                          return (
+                            <button key={s.id} onClick={()=>toggleService(s)}
+                              style={{width:"100%",background:sel?"#FFFDF7":T.white,border:"none",borderBottom:i<svcs.length-1?"1px solid #F5F5F5":"none",padding:"12px 16px",cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"background .15s"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                                <div style={{width:18,height:18,borderRadius:5,border:"2px solid "+(sel?T.gold:"#E0E0E0"),background:sel?T.gold:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                                  {sel&&<span style={{color:T.white,fontSize:10,fontWeight:"bold",lineHeight:1}}>✓</span>}
+                                </div>
+                                <div>
+                                  <div style={{fontSize:13,color:T.charcoal}}>{s.name}</div>
+                                  {s.isDeal&&s.description&&<div style={{fontSize:11,color:T.grayLight,marginTop:1}}>{s.description}</div>}
+                                  {!s.isDeal&&s.duration>0&&<div style={{fontSize:11,color:T.grayLight,marginTop:1}}>{s.duration} min</div>}
+                                </div>
+                              </div>
+                              <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,marginLeft:10}}>
+                                <div style={{fontSize:14,fontFamily:"'Cormorant Garamond',serif",color:sel?T.gold:T.charcoal}}>{fmt(s.price)}</div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
             <div style={{display:"flex",justifyContent:"flex-end",marginTop:14}}>
               <button className="gold-btn" onClick={()=>selected.length>0&&setStep(2)} style={{...S.goldBtn,opacity:selected.length>0?1:0.4,cursor:selected.length>0?"pointer":"not-allowed"}}>
                 Continue → {selected.length>0&&"("+fmt(totalPrice)+")"}
