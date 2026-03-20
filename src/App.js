@@ -8,8 +8,8 @@ fontLink.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ita
 document.head.appendChild(fontLink);
 
 const CONFIG = {
-  ownerPassword:   "owner-password-here",
-  managerPassword: "manager-password-here",
+  ownerPassword:   "Saisha@123",
+  managerPassword: "Beauty@38",
   ownerName:       "Saisha",
   managerNameKey:  "sbb_manager_name",
 };
@@ -804,13 +804,20 @@ function BookingPage({onSubmit,appointments,SERVICES,showToast}) {
                 </div>
               ))}
               <div style={{display:"flex",justifyContent:"space-between",fontSize:15,marginTop:10,paddingTop:10,borderTop:"1px solid #E8E8E8"}}>
-                <span style={{color:T.charcoal,fontWeight:"500"}}>Total</span>
+                <span style={{color:T.charcoal,fontWeight:"500"}}>Estimated Total</span>
                 <span style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,color:T.charcoal}}>{fmt(totalPrice)}</span>
               </div>
               <div style={{height:1,background:"#E8E8E8",margin:"10px 0"}}/>
               {[["Date",fmtDate(form.date)],["Time",form.time],["Name",form.name],["Phone",form.phone]].map(([k,v])=>(
                 <div key={k} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:5}}><span style={{color:T.grayLight}}>{k}</span><span style={{color:T.charcoal}}>{v}</span></div>
               ))}
+            </div>
+            {/* Disclaimer */}
+            <div style={{display:"flex",gap:8,padding:"12px 14px",background:"#FFFDF7",border:"1px solid rgba(201,168,76,.25)",borderRadius:10,marginBottom:16}}>
+              <span style={{color:T.gold,fontSize:14,flexShrink:0,marginTop:1}}>✦</span>
+              <p style={{fontSize:12,color:T.grayLight,lineHeight:1.6,margin:0}}>
+                Prices shown are estimates and may vary slightly depending on hair length, thickness, condition, and the complexity of your chosen service. Final pricing will be confirmed at the time of your appointment.
+              </p>
             </div>
             <button className="gold-btn" onClick={submit} disabled={submitting} style={{...S.goldBtn,width:"100%",fontSize:15,padding:"15px",opacity:submitting?0.6:1}}>{submitting?"Confirming…":"Confirm Booking ✦"}</button>
             <button onClick={()=>setStep(3)} style={{width:"100%",background:"transparent",border:"none",color:T.grayLight,padding:"12px",cursor:"pointer",fontSize:13,marginTop:8,fontFamily:"'Jost',sans-serif"}}>← Go back</button>
