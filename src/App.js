@@ -8,8 +8,8 @@ fontLink.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ita
 document.head.appendChild(fontLink);
 
 const CONFIG = {
-  ownerPassword:   "owner-password-here",
-  managerPassword: "manager-password-here",
+  ownerPassword:   "Saisha@123",
+  managerPassword: "Beauty@38",
   ownerName:       "Saisha",
   managerNameKey:  "sbb_manager_name",
 };
@@ -142,18 +142,26 @@ const BASE_SERVICES = [
 ];
 
 const TIME_SLOTS = [
-  "9:00 AM","9:30 AM","10:00 AM","10:30 AM","11:00 AM","11:30 AM",
+  "11:00 AM","11:30 AM",
   "12:00 PM","12:30 PM","1:00 PM","1:30 PM","2:00 PM","2:30 PM",
   "3:00 PM","3:30 PM","4:00 PM","4:30 PM","5:00 PM","5:30 PM",
+  "6:00 PM","6:30 PM","7:00 PM","7:30 PM",
 ];
+
+// Inject viewport meta to prevent mobile zoom
+const viewportMeta = document.createElement("meta");
+viewportMeta.name = "viewport";
+viewportMeta.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no";
+if(!document.querySelector("meta[name=viewport]")) document.head.appendChild(viewportMeta);
 
 const css = `
   @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   @keyframes spin{to{transform:rotate(360deg)}}
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#FFFFFF}
-  input,select,textarea{font-family:'Jost',sans-serif!important}
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+  body{background:#FFFFFF;-webkit-tap-highlight-color:transparent}
+  input,select,textarea{font-family:'Jost',sans-serif!important;font-size:16px!important;-webkit-appearance:none;border-radius:8px}
   ::placeholder{color:#BBBBBB}
   input[type=date]::-webkit-calendar-picker-indicator{opacity:.4;cursor:pointer}
   ::-webkit-scrollbar{width:4px}
@@ -166,6 +174,9 @@ const css = `
   .suggestion-item:hover{background:#F5F3EF!important}
   .inv-card:hover{border-color:#C9A84C!important}
   @media print{@page{size:80mm auto;margin:0}body{margin:0;padding:0}.no-print{display:none!important}}
+  @media(max-width:480px){
+    .hide-mobile{display:none!important}
+  }
 `;
 
 /* ════════════════ ROOT ════════════════ */
@@ -338,7 +349,7 @@ export default function App() {
   const printInvoice = (inv) => {
     const services=parseServices(inv.services_json);
     const w=window.open("","_blank");
-    const rows=services.map(s=>"<tr><td>"+s.name+"</td><td class='r'>"+fmtN(s.price)+"</td></tr>").join("");
+    const rows=services.map(s=>"<tr><td>"+(s.qty&&s.qty>1?s.name+" ×"+s.qty:s.name)+"</td><td class='r'>"+fmtN(s.price)+"</td></tr>").join("");
     const discRow=Number(inv.discount)>0?"<tr><td>Discount</td><td class='r'>- "+fmtN(inv.discount)+"</td></tr>":"";
     w.document.write("<!DOCTYPE html><html><head><title>"+inv.invoice_num+"</title>"
       +"<link href='https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Jost:wght@300;400&display=swap' rel='stylesheet'>"
@@ -486,9 +497,9 @@ function LandingPage() {
   return (
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.white,padding:24}}>
       <div style={{width:"100%",maxWidth:400,animation:"fadeUp .5s ease"}}>
-        <div style={{textAlign:"center",marginBottom:44}}>
-          <div style={{width:80,height:80,margin:"0 auto 18px"}}><img src="/saisha-monogram-transparent.png" alt="SB" style={{width:"100%"}}/></div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:36,letterSpacing:4,color:T.charcoal,marginBottom:4}}>Saisha Beauty</div>
+        <div style={{textAlign:"center",marginBottom:"min(44px,8vh)"}}>
+          <div style={{width:"min(80px,20vw)",height:"min(80px,20vw)",margin:"0 auto 16px"}}><img src="/saisha-monogram-transparent.png" alt="SB" style={{width:"100%",height:"auto"}}/></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"min(36px,9vw)",letterSpacing:"min(4px,1vw)",color:T.charcoal,marginBottom:4}}>Saisha Beauty</div>
           <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:T.gold,fontStyle:"italic",letterSpacing:2}}>Time to Glow</div>
         </div>
         <div style={{display:"grid",gap:12}}>
@@ -526,14 +537,14 @@ function AppShell({role,userName,children,onLogout}) {
   const child=React.cloneElement(children,{screen,setScreen});
   return (
     <div style={{minHeight:"100vh"}}>
-      <div style={{background:T.charcoal,padding:"10px 22px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div style={{background:T.charcoal,padding:"12px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",minHeight:48}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <img src="/saisha-monogram-transparent.png" alt="SB" style={{width:22,height:"auto",filter:"invert(1) sepia(1) saturate(.4) brightness(1.8)"}}/>
           <span style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,color:T.white,letterSpacing:2}}>Welcome, <span style={{color:T.gold}}>{userName}</span></span>
         </div>
         <SignOutButton onLogout={onLogout} role={role}/>
       </div>
-      <div style={{position:"fixed",bottom:22,left:"50%",transform:"translateX(-50%)",zIndex:100,background:T.charcoal,borderRadius:40,padding:"5px",display:"flex",gap:4,boxShadow:"0 8px 32px rgba(0,0,0,.25)"}}>
+      <div style={{position:"fixed",bottom:"max(22px,env(safe-area-inset-bottom,22px))",left:"50%",transform:"translateX(-50%)",zIndex:100,background:T.charcoal,borderRadius:40,padding:"5px",display:"flex",gap:4,boxShadow:"0 8px 32px rgba(0,0,0,.25)"}}>
         {[["dashboard","Dashboard"],["invoices","New Invoice"]].map(([s,label])=>(
           <button key={s} onClick={()=>setScreen(s)} style={{background:screen===s?T.gold:"transparent",border:"none",color:screen===s?T.charcoal:"#888",padding:"10px 20px",borderRadius:32,cursor:"pointer",fontSize:13,letterSpacing:".5px",fontFamily:"'Jost',sans-serif",fontWeight:screen===s?"500":"300",transition:"all .25s"}}>{label}</button>
         ))}
@@ -606,13 +617,13 @@ function BookingPage({onSubmit,appointments,SERVICES,showToast}) {
 
   return (
     <div style={{minHeight:"100vh",paddingBottom:80}}>
-      <div style={{background:T.charcoal,padding:"46px 24px 34px",textAlign:"center",position:"relative",overflow:"hidden"}}>
+      <div style={{background:T.charcoal,padding:"clamp(28px,8vw,46px) 24px clamp(22px,5vw,34px)",textAlign:"center",position:"relative",overflow:"hidden"}}>
         <div style={{position:"absolute",inset:0,backgroundImage:"repeating-linear-gradient(45deg,transparent,transparent 60px,rgba(201,168,76,.03) 60px,rgba(201,168,76,.03) 120px)"}}/>
         <BackButton/>
         <div style={{position:"relative"}}>
           <div style={{width:48,height:48,margin:"0 auto 12px"}}><img src="/saisha-monogram-transparent.png" alt="SB" style={{width:"100%",filter:"invert(1) sepia(1) saturate(.5) brightness(1.8)"}}/></div>
           <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:10,letterSpacing:6,color:T.grayLight,textTransform:"uppercase",marginBottom:6}}>Welcome to</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:38,letterSpacing:4,color:T.white,lineHeight:1,marginBottom:6}}>Saisha Beauty</div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"min(38px,9vw)",letterSpacing:"min(4px,1vw)",color:T.white,lineHeight:1,marginBottom:6}}>Saisha Beauty</div>
           <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,letterSpacing:2,color:T.gold,fontStyle:"italic"}}>Time to Glow</div>
         </div>
       </div>
@@ -801,7 +812,7 @@ function Dashboard({clients,appointments,invoices,deals,SERVICES,saveClient,dele
 
   return (
     <div style={{minHeight:"100vh",paddingBottom:100}}>
-      <div style={{background:T.white,borderBottom:"1px solid #E8E8E8",padding:"14px 22px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:36,zIndex:9}}>
+      <div style={{background:T.white,borderBottom:"1px solid #E8E8E8",padding:"14px 22px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:48,zIndex:9}}>
         <div>
           <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,letterSpacing:2,color:T.charcoal}}>{isOwner?"Owner Dashboard":"Manager Dashboard"}</div>
           <div style={{fontSize:9,letterSpacing:2,color:T.gold,textTransform:"uppercase",marginTop:1,fontStyle:"italic",fontFamily:"'Cormorant Garamond',serif"}}>Saisha Beauty Bar</div>
@@ -902,9 +913,13 @@ function InvoicePage({clients,invoices,SERVICES,createQuickInvoice,markPaid,dele
     else{setSuggestions([]);setShowSugg(false);}
   };
   const selectClient=(c)=>{setClientName(c.name);setClientId(c.id);setPhone(c.phone||"");setEmail(c.email||"");setIsNew(false);setShowSugg(false);};
-  const toggleSvc=(svc)=>setSelectedSvcs(prev=>prev.find(s=>s.id===svc.id)?prev.filter(s=>s.id!==svc.id):[...prev,svc]);
+  const toggleSvc=(svc)=>setSelectedSvcs(prev=>prev.find(s=>s.id===svc.id)?prev.filter(s=>s.id!==svc.id):[...prev,{...svc,customPrice:"",qty:1}]);
+  const updateSvcPrice=(id,val)=>setSelectedSvcs(prev=>prev.map(s=>s.id===id?{...s,customPrice:val}:s));
+  const updateSvcQty=(id,val)=>setSelectedSvcs(prev=>prev.map(s=>s.id===id?{...s,qty:Math.max(1,Math.min(20,Number(val)||1))}:s));
+  const getSvcUnitPrice=(s)=>s.customPrice!==undefined&&s.customPrice!==""?Number(s.customPrice):Number(s.price||0);
+  const getSvcPrice=(s)=>getSvcUnitPrice(s)*(s.qty||1);
 
-  const subtotal=selectedSvcs.reduce((s,sv)=>s+Number(sv.price||0),0);
+  const subtotal=selectedSvcs.reduce((s,sv)=>s+getSvcPrice(sv),0);
   const discAmt=discount?Math.min(Number(discount),subtotal):0;
   const total=subtotal-discAmt;
   const valid=clientName&&selectedSvcs.length>0&&date;
@@ -917,7 +932,9 @@ function InvoicePage({clients,invoices,SERVICES,createQuickInvoice,markPaid,dele
       const {data,error}=await supabase.from("clients").insert({name:clientName,phone:phone||"",email:email||"",notes:""}).select().single();
       if(!error){setClients(prev=>[data,...prev]);cid=data.id;}
     }
-    const result=await createQuickInvoice({clientId:cid,clientName,services:selectedSvcs,date,discount:discAmt>0?discAmt:null,note:note||null});
+    // Apply custom prices before saving
+    const svcsWithPrices=selectedSvcs.map(s=>({...s,price:getSvcPrice(s),unitPrice:getSvcUnitPrice(s),qty:s.qty||1}));
+    const result=await createQuickInvoice({clientId:cid,clientName,services:svcsWithPrices,date,discount:discAmt>0?discAmt:null,note:note||null});
     setSaving(false);
     if(result){
       setClientName("");setClientId("");setPhone("");setEmail("");setIsNew(true);setSelectedSvcs([]);setDiscount("");setNote("");setSvcSearch("");
@@ -927,7 +944,7 @@ function InvoicePage({clients,invoices,SERVICES,createQuickInvoice,markPaid,dele
 
   return (
     <div style={{minHeight:"100vh",paddingBottom:100}}>
-      <div style={{background:T.white,borderBottom:"1px solid #E8E8E8",padding:"14px 22px",position:"sticky",top:36,zIndex:9}}>
+      <div style={{background:T.white,borderBottom:"1px solid #E8E8E8",padding:"14px 22px",position:"sticky",top:48,zIndex:9}}>
         <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,letterSpacing:2,color:T.charcoal}}>New Invoice</div>
         <div style={{fontSize:9,letterSpacing:2,color:T.gold,textTransform:"uppercase",marginTop:1,fontStyle:"italic",fontFamily:"'Cormorant Garamond',serif"}}>Saisha Beauty Bar</div>
       </div>
@@ -978,10 +995,45 @@ function InvoicePage({clients,invoices,SERVICES,createQuickInvoice,markPaid,dele
             </div>
 
             {selectedSvcs.length>0&&(
-              <div style={{background:T.parchment,borderRadius:8,padding:"9px 13px",display:"flex",flexWrap:"wrap",gap:5}}>
-                {selectedSvcs.map(s=>(
-                  <div key={s.id} style={{display:"flex",alignItems:"center",gap:4,background:T.charcoal,color:T.white,borderRadius:20,padding:"3px 9px",fontSize:12}}>
-                    {s.name}<span style={{cursor:"pointer",color:"#aaa",marginLeft:2}} onClick={()=>toggleSvc(s)}>×</span>
+              <div style={{border:"1px solid #E8E8E8",borderRadius:10,overflow:"hidden",marginTop:2}}>
+                <div style={{padding:"8px 12px",background:T.parchment,fontSize:9,letterSpacing:2,textTransform:"uppercase",color:T.grayLight}}>Selected — edit prices if needed</div>
+                {selectedSvcs.map((s,i)=>(
+                  <div key={s.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderTop:i===0?"none":"1px solid #F5F5F5",background:T.white}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,color:T.charcoal,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
+                      {s.name.toLowerCase().includes("starts from")&&<div style={{fontSize:10,color:T.gold}}>Variable price — edit below</div>}
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                        <span style={{fontSize:9,color:T.grayLight,letterSpacing:1,textTransform:"uppercase"}}>Qty</span>
+                        <input
+                          type="number" inputMode="numeric"
+                          value={s.qty||1}
+                          min={1} max={20}
+                          onChange={e=>updateSvcQty(s.id,e.target.value)}
+                          style={{...S.input,width:52,padding:"6px 6px",fontSize:13,textAlign:"center"}}
+                        />
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>
+                        <span style={{fontSize:9,color:T.grayLight,letterSpacing:1,textTransform:"uppercase"}}>Unit Price</span>
+                        <div style={{display:"flex",alignItems:"center",gap:4}}>
+                          <span style={{fontSize:11,color:T.grayLight}}>Rs.</span>
+                          <input
+                            type="number" inputMode="numeric"
+                            value={s.customPrice!==""?s.customPrice:s.price}
+                            onChange={e=>updateSvcPrice(s.id,e.target.value)}
+                            style={{...S.input,width:86,padding:"6px 8px",fontSize:13,textAlign:"right"}}
+                          />
+                        </div>
+                      </div>
+                      {(s.qty||1)>1&&(
+                        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>
+                          <span style={{fontSize:9,color:T.grayLight,letterSpacing:1,textTransform:"uppercase"}}>Total</span>
+                          <span style={{fontSize:13,fontFamily:"'Cormorant Garamond',serif",color:T.charcoal}}>{fmt(getSvcPrice(s))}</span>
+                        </div>
+                      )}
+                      <button onClick={()=>toggleSvc(s)} style={{background:"transparent",border:"none",color:T.grayLight,cursor:"pointer",fontSize:16,lineHeight:1,padding:"2px 4px",flexShrink:0,alignSelf:"center"}}>×</button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1004,7 +1056,10 @@ function InvoicePage({clients,invoices,SERVICES,createQuickInvoice,markPaid,dele
                 <div key={k} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4}}><span style={{color:T.grayLight}}>{k}</span><span style={{color:T.charcoal}}>{v}</span></div>
               ))}
               {selectedSvcs.map(s=>(
-                <div key={s.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3}}><span style={{color:T.charcoal}}>· {s.name}</span><span style={{color:T.charcoal}}>{fmt(s.price)}</span></div>
+                <div key={s.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3}}>
+                  <span style={{color:T.charcoal}}>· {s.name}{(s.qty||1)>1?` ×${s.qty||1}`:""}</span>
+                  <span style={{color:T.charcoal}}>{fmt(getSvcPrice(s))}</span>
+                </div>
               ))}
               {discAmt>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:T.green}}><span>Discount</span><span>− {fmt(discAmt)}</span></div>}
               <div style={{display:"flex",justifyContent:"space-between",fontSize:15,fontWeight:"500",marginTop:7,paddingTop:7,borderTop:"1px solid #E8E8E8"}}><span>Total</span><span style={{fontFamily:"'Cormorant Garamond',serif",fontSize:17}}>{fmt(total)}</span></div>
@@ -1159,11 +1214,17 @@ function ApptCard({appt,client,SERVICES,showDate,canDelete,completed,onEdit,onDe
         {appt.total_duration>0&&<div style={{fontSize:10,color:T.grayLight,marginTop:1}}>{appt.total_duration}m</div>}
       </div>
       <div style={{flex:1,minWidth:130}}>
-        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
+        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:2}}>
           <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:T.charcoal}}>{client?.name||"Guest"}</div>
           {completed&&<span style={{fontSize:9,letterSpacing:1,color:T.grayLight,background:T.parchment,padding:"1px 6px",borderRadius:10,border:"1px solid #E8E8E8",textTransform:"uppercase"}}>Done</span>}
           {appt.source==="online"&&<span style={{fontSize:9,letterSpacing:1,color:T.gold,textTransform:"uppercase"}}>Online</span>}
         </div>
+        {(client?.phone||client?.email)&&(
+          <div style={{display:"flex",gap:10,marginBottom:4}}>
+            {client?.phone&&<span style={{fontSize:11,color:T.grayLight}}>📞 {client.phone}</span>}
+            {client?.email&&<span style={{fontSize:11,color:T.grayLight}}>✉ {client.email}</span>}
+          </div>
+        )}
         {services.length>0?(
           services.map((s,i)=>(
             <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:2}}>
