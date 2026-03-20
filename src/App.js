@@ -8,8 +8,8 @@ fontLink.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ita
 document.head.appendChild(fontLink);
 
 const CONFIG = {
-  ownerPassword:   "Saisha@123",
-  managerPassword: "Beauty@38",
+  ownerPassword:   "owner-password-here",
+  managerPassword: "manager-password-here",
   ownerName:       "Saisha",
   managerNameKey:  "sbb_manager_name",
 };
@@ -497,10 +497,13 @@ function LandingPage() {
   return (
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.white,padding:24}}>
       <div style={{width:"100%",maxWidth:400,animation:"fadeUp .5s ease"}}>
-        <div style={{textAlign:"center",marginBottom:"min(44px,8vh)"}}>
-          <div style={{width:"min(80px,20vw)",height:"min(80px,20vw)",margin:"0 auto 16px"}}><img src="/saisha-monogram-transparent.png" alt="SB" style={{width:"100%",height:"auto"}}/></div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"min(36px,9vw)",letterSpacing:"min(4px,1vw)",color:T.charcoal,marginBottom:4}}>Saisha Beauty</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:T.gold,fontStyle:"italic",letterSpacing:2}}>Time to Glow</div>
+        <div style={{textAlign:"center",marginBottom:36}}>
+          <div style={{width:56,height:56,margin:"0 auto",flexShrink:0}}>
+            <img src="/saisha-monogram-transparent.png" alt="SB" style={{width:"100%",height:"auto",display:"block"}}/>
+          </div>
+          <div style={{height:20}}/>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:32,letterSpacing:3,color:T.charcoal,marginBottom:6,lineHeight:1.2}}>Saisha Beauty</div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,color:T.gold,fontStyle:"italic",letterSpacing:2}}>Time to Glow</div>
         </div>
         <div style={{display:"grid",gap:12}}>
           {[
@@ -540,7 +543,7 @@ function AppShell({role,userName,children,onLogout}) {
       <div style={{background:T.charcoal,padding:"12px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",minHeight:48}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <img src="/saisha-monogram-transparent.png" alt="SB" style={{width:22,height:"auto",filter:"invert(1) sepia(1) saturate(.4) brightness(1.8)"}}/>
-          <span style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,color:T.white,letterSpacing:2}}>Welcome, <span style={{color:T.gold}}>{userName}</span></span>
+          <span style={{fontFamily:"'Cormorant Garamond',serif",fontSize:13,color:T.white,letterSpacing:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"60vw"}}>Welcome, <span style={{color:T.gold}}>{userName}</span></span>
         </div>
         <SignOutButton onLogout={onLogout} role={role}/>
       </div>
@@ -558,7 +561,7 @@ function AppShell({role,userName,children,onLogout}) {
 function BackButton() {
   const navigate = useNavigate();
   return (
-    <button onClick={()=>navigate("/")} style={{position:"absolute",top:14,left:14,background:"rgba(255,255,255,.12)",border:"1px solid rgba(255,255,255,.25)",color:"#fff",cursor:"pointer",fontSize:12,fontFamily:"'Jost',sans-serif",padding:"7px 14px",borderRadius:20,letterSpacing:".5px"}}>← Back</button>
+    <button onClick={()=>navigate("/")} style={{display:"inline-flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.2)",color:"rgba(255,255,255,.8)",cursor:"pointer",fontSize:12,fontFamily:"'Jost',sans-serif",padding:"7px 14px",borderRadius:20,letterSpacing:".5px"}}>← Back</button>
   );
 }
 /* ════════════════ BOOKING PAGE ════════════════ */
@@ -617,14 +620,50 @@ function BookingPage({onSubmit,appointments,SERVICES,showToast}) {
 
   return (
     <div style={{minHeight:"100vh",paddingBottom:80}}>
-      <div style={{background:T.charcoal,padding:"clamp(28px,8vw,46px) 24px clamp(22px,5vw,34px)",textAlign:"center",position:"relative",overflow:"hidden"}}>
-        <div style={{position:"absolute",inset:0,backgroundImage:"repeating-linear-gradient(45deg,transparent,transparent 60px,rgba(201,168,76,.03) 60px,rgba(201,168,76,.03) 120px)"}}/>
-        <BackButton/>
-        <div style={{position:"relative"}}>
-          <div style={{width:48,height:48,margin:"0 auto 12px"}}><img src="/saisha-monogram-transparent.png" alt="SB" style={{width:"100%",filter:"invert(1) sepia(1) saturate(.5) brightness(1.8)"}}/></div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:10,letterSpacing:6,color:T.grayLight,textTransform:"uppercase",marginBottom:6}}>Welcome to</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"min(38px,9vw)",letterSpacing:"min(4px,1vw)",color:T.white,lineHeight:1,marginBottom:6}}>Saisha Beauty</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,letterSpacing:2,color:T.gold,fontStyle:"italic"}}>Time to Glow</div>
+      {/* ── Booking Hero ── */}
+      <div style={{position:"relative",overflow:"hidden",background:"#0D0D0D",minHeight:200}}>
+        {/* layered glow orbs */}
+        <div style={{position:"absolute",top:-60,left:"50%",transform:"translateX(-50%)",width:340,height:340,borderRadius:"50%",background:"radial-gradient(circle,rgba(201,168,76,.18) 0%,transparent 70%)",pointerEvents:"none"}}/>
+        <div style={{position:"absolute",bottom:-80,left:-60,width:220,height:220,borderRadius:"50%",background:"radial-gradient(circle,rgba(201,168,76,.08) 0%,transparent 70%)",pointerEvents:"none"}}/>
+        <div style={{position:"absolute",bottom:-60,right:-40,width:180,height:180,borderRadius:"50%",background:"radial-gradient(circle,rgba(201,168,76,.07) 0%,transparent 70%)",pointerEvents:"none"}}/>
+        {/* thin gold top line */}
+        <div style={{position:"absolute",top:0,left:0,right:0,height:1,background:"linear-gradient(to right,transparent,rgba(201,168,76,.6),transparent)"}}/>
+        {/* thin gold bottom line */}
+        <div style={{position:"absolute",bottom:0,left:0,right:0,height:1,background:"linear-gradient(to right,transparent,rgba(201,168,76,.4),transparent)"}}/>
+
+        {/* back button */}
+        <div style={{position:"absolute",top:16,left:16,zIndex:2}}>
+          <BackButton/>
+        </div>
+
+        {/* centred content */}
+        <div style={{position:"relative",zIndex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"44px 24px 36px",textAlign:"center"}}>
+          {/* logo with ring */}
+          <div style={{position:"relative",marginBottom:18}}>
+            <div style={{width:72,height:72,borderRadius:"50%",border:"1px solid rgba(201,168,76,.35)",display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(201,168,76,.06)"}}>
+              <img src="/saisha-monogram-transparent.png" alt="SB"
+                style={{width:48,height:48,objectFit:"contain",filter:"invert(1) sepia(1) saturate(.6) brightness(1.9)"}}/>
+            </div>
+            {/* small dot accents */}
+            <div style={{position:"absolute",top:"50%",left:-18,transform:"translateY(-50%)",width:4,height:4,borderRadius:"50%",background:T.gold,opacity:.5}}/>
+            <div style={{position:"absolute",top:"50%",right:-18,transform:"translateY(-50%)",width:4,height:4,borderRadius:"50%",background:T.gold,opacity:.5}}/>
+          </div>
+
+          {/* eyebrow */}
+          <div style={{fontSize:9,letterSpacing:5,textTransform:"uppercase",color:"rgba(201,168,76,.7)",marginBottom:10,fontFamily:"'Jost',sans-serif",fontWeight:300}}>Welcome to</div>
+
+          {/* salon name */}
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:34,letterSpacing:4,color:"#FFFFFF",lineHeight:1,marginBottom:8,fontWeight:300}}>Saisha Beauty</div>
+
+          {/* gold divider */}
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+            <div style={{width:32,height:1,background:"linear-gradient(to right,transparent,rgba(201,168,76,.6))"}}/>
+            <div style={{width:4,height:4,borderRadius:"50%",background:T.gold,opacity:.7}}/>
+            <div style={{width:32,height:1,background:"linear-gradient(to left,transparent,rgba(201,168,76,.6))"}}/>
+          </div>
+
+          {/* tagline */}
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,letterSpacing:3,color:T.gold,fontStyle:"italic"}}>Time to Glow</div>
         </div>
       </div>
 
@@ -812,22 +851,22 @@ function Dashboard({clients,appointments,invoices,deals,SERVICES,saveClient,dele
 
   return (
     <div style={{minHeight:"100vh",paddingBottom:100}}>
-      <div style={{background:T.white,borderBottom:"1px solid #E8E8E8",padding:"14px 22px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:48,zIndex:9}}>
-        <div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,letterSpacing:2,color:T.charcoal}}>{isOwner?"Owner Dashboard":"Manager Dashboard"}</div>
+      <div style={{background:T.white,borderBottom:"1px solid #E8E8E8",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:48,zIndex:9,gap:8,minWidth:0}}>
+        <div style={{minWidth:0,flex:1}}>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,letterSpacing:1,color:T.charcoal,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{isOwner?"Owner Dashboard":"Manager Dashboard"}</div>
           <div style={{fontSize:9,letterSpacing:2,color:T.gold,textTransform:"uppercase",marginTop:1,fontStyle:"italic",fontFamily:"'Cormorant Garamond',serif"}}>Saisha Beauty Bar</div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <div style={{textAlign:"right"}}><div style={{fontSize:9,color:T.grayLight,letterSpacing:1,textTransform:"uppercase"}}>Today</div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:17,color:T.charcoal}}>{fmt(todayRevenue)}</div></div>
-          <button className="gold-btn" onClick={()=>setApptModal({date:todayStr()})} style={S.goldBtn}>+ New</button>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+          <div style={{textAlign:"right"}}><div style={{fontSize:9,color:T.grayLight,letterSpacing:1,textTransform:"uppercase"}}>Today</div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:T.charcoal}}>{fmt(todayRevenue)}</div></div>
+          <button className="gold-btn" onClick={()=>setApptModal({date:todayStr()})} style={{...S.goldBtn,padding:"9px 14px",fontSize:12}}>+ New</button>
         </div>
       </div>
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderBottom:"1px solid #E8E8E8",background:T.parchment}}>
         {[["Today",todayAppts.length],["Upcoming",upcomingAppts.length],["Collected",fmt(collected)],["Outstanding",fmt(outstanding)]].map(([l,v],i)=>(
-          <div key={l} style={{padding:"12px",textAlign:"center",borderRight:i<3?"1px solid #E8E8E8":"none"}}>
-            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:i<2?22:13,color:T.charcoal,marginBottom:2}}>{v}</div>
-            <div style={{fontSize:9,letterSpacing:1,textTransform:"uppercase",color:T.grayLight}}>{l}</div>
+          <div key={l} style={{padding:"10px 6px",textAlign:"center",borderRight:i<3?"1px solid #E8E8E8":"none"}}>
+            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:i<2?20:11,color:T.charcoal,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v}</div>
+            <div style={{fontSize:8,letterSpacing:1,textTransform:"uppercase",color:T.grayLight}}>{l}</div>
           </div>
         ))}
       </div>
