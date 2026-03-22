@@ -42,7 +42,7 @@ function parseServices(raw) {
 // Capitalise each word in a name — "ayesha khan" → "Ayesha Khan"
 function titleCase(str) {
   if(!str) return "";
-  return str.trim().replace(/\w/g,(c)=>c.toUpperCase());
+  return str.trim().split(" ").map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
 }
 
 const BASE_SERVICES = [
