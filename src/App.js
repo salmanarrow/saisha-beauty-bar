@@ -39,6 +39,12 @@ function parseServices(raw) {
   catch { return []; }
 }
 
+// Capitalise each word in a name — "ayesha khan" → "Ayesha Khan"
+function titleCase(str) {
+  if(!str) return "";
+  return str.trim().replace(/\w/g,(c)=>c.toUpperCase());
+}
+
 const BASE_SERVICES = [
   {id:1,  name:"Party Makeup by Saisha",            price:15000,duration:90,  category:"Makeup"},
   {id:2,  name:"Senior Artist Party Makeup",        price:10000,duration:75,  category:"Makeup"},
@@ -169,7 +175,7 @@ const css = `
   .gold-btn:hover{background:#2a2a2a!important}
   .outline-btn:hover{border-color:#999!important}
   .svc-card:hover{border-color:#C9A84C!important;transform:translateY(-1px)}
-  .time-btn:hover:not(:disabled){background:#F5F3EF!important;border-color:#C9A84C!important}
+  .time-btn:hover:not(:disabled):not(.time-selected){background:#F5F3EF!important;border-color:#C9A84C!important}
   .role-btn:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.12)!important}
   .suggestion-item:hover{background:#F5F3EF!important}
   .inv-card:hover{border-color:#C9A84C!important}
@@ -224,14 +230,26 @@ export default function App() {
     setLoading(false);
   };
 
+  // Lightweight load for the public booking page — only needs deals + appointments
+  const loadPublic = async () => {
+    try {
+      const [{data:a},{data:d}] = await Promise.all([
+        supabase.from("appointments").select("date,time").order("date"),
+        supabase.from("deals").select("*").order("created_at",{ascending:false}),
+      ]);
+      setAppointments(a||[]);
+      setDeals(d||[]);
+    } catch { /* silent — booking page still works, just no taken slots or deals */ }
+  };
+
   const saveClient = async (client) => {
     if(client.id){
-      const {error}=await supabase.from("clients").update({name:client.name,phone:client.phone,email:client.email,notes:client.notes}).eq("id",client.id);
+      const {error}=await supabase.from("clients").update({name:titleCase(client.name),phone:client.phone,email:client.email,notes:client.notes}).eq("id",client.id);
       if(error){showToast("Failed to update client","error");return false;}
       setClients(prev=>prev.map(c=>c.id===client.id?{...c,...client}:c));
       showToast("Client updated ✦"); return true;
     } else {
-      const {data,error}=await supabase.from("clients").insert({name:client.name,phone:client.phone||"",email:client.email||"",notes:client.notes||""}).select().single();
+      const {data,error}=await supabase.from("clients").insert({name:titleCase(client.name),phone:client.phone||"",email:client.email||"",notes:client.notes||""}).select().single();
       if(error){showToast("Failed to add client","error");return false;}
       setClients(prev=>[data,...prev]); showToast("Client added ✦"); return true;
     }
@@ -277,10 +295,14 @@ export default function App() {
   };
 
   const handleBookingSubmit = async (booking) => {
-    let client=clients.find(c=>c.email?.toLowerCase()===booking.email?.toLowerCase());
+    // Match by email OR phone — same person even if name differs
+    let client=clients.find(c=>
+      (booking.email&&c.email&&c.email.toLowerCase()===booking.email.toLowerCase())||
+      (booking.phone&&c.phone&&c.phone.replace(/\D/g,"")===booking.phone.replace(/\D/g,""))
+    );
     let clientId;
     if(!client){
-      const {data,error}=await supabase.from("clients").insert({name:booking.name,phone:booking.phone,email:booking.email,notes:""}).select().single();
+      const {data,error}=await supabase.from("clients").insert({name:titleCase(booking.name),phone:booking.phone,email:booking.email,notes:""}).select().single();
       if(error){showToast("Booking failed","error");return false;}
       setClients(prev=>[data,...prev]); clientId=data.id;
     } else { clientId=client.id; }
@@ -426,6 +448,8 @@ export default function App() {
               onSubmit={handleBookingSubmit}
               appointments={appointments}
               SERVICES={SERVICES}
+              deals={deals}
+              loadPublic={loadPublic}
               showToast={showToast}
             />
           }/>
@@ -565,13 +589,15 @@ function BackButton() {
   );
 }
 /* ════════════════ BOOKING PAGE ════════════════ */
-function BookingPage({onSubmit,appointments,SERVICES,showToast}) {
+function BookingPage({onSubmit,appointments,SERVICES,deals,loadPublic,showToast}) {
   const [step,setStep]=useState(1);
   const [selected,setSelected]=useState([]);
   const [form,setForm]=useState({date:"",time:"",name:"",phone:"",email:"",notes:""});
   const [done,setDone]=useState(false);
   const [submitting,setSubmitting]=useState(false);
   const [search,setSearch]=useState("");
+  // Load deals + taken slots when booking page opens
+  useEffect(()=>{ if(loadPublic) loadPublic(); },[]);  // eslint-disable-line react-hooks/exhaustive-deps
   const set=(k,v)=>setForm(p=>({...p,[k]:v}));
   const takenSlots=appointments.filter(a=>a.date===form.date).map(a=>a.time);
   const categories=useMemo(()=>[...new Set(SERVICES.map(s=>s.category))],[SERVICES]);
@@ -768,7 +794,7 @@ function BookingPage({onSubmit,appointments,SERVICES,showToast}) {
             {form.date&&<>
               <FieldLabel>Available Times</FieldLabel>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:8}}>
-                {TIME_SLOTS.map(t=>{const taken=takenSlots.includes(t),sel=form.time===t;return<button key={t} className={!taken?"time-btn":""} disabled={taken} onClick={()=>set("time",t)} style={{padding:"10px 4px",borderRadius:8,border:"1px solid "+(sel?T.charcoal:taken?"#F0F0F0":"#E8E8E8"),background:sel?T.charcoal:taken?T.parchment:T.white,color:sel?T.white:taken?T.grayLight:T.charcoal,fontSize:13,cursor:taken?"not-allowed":"pointer",transition:"all .2s",textDecoration:taken?"line-through":"none",fontFamily:"'Jost',sans-serif"}}>{t}</button>;})}
+                {TIME_SLOTS.map(t=>{const taken=takenSlots.includes(t),sel=form.time===t;return<button key={t} className={taken?"":(sel?"time-btn time-selected":"time-btn")} disabled={taken} onClick={()=>set("time",t)} style={{padding:"10px 4px",borderRadius:8,border:"1px solid "+(sel?T.charcoal:taken?"#F0F0F0":"#E8E8E8"),background:sel?T.charcoal:taken?T.parchment:T.white,color:sel?T.white:taken?T.grayLight:T.charcoal,fontSize:13,cursor:taken?"not-allowed":"pointer",transition:"all .2s",textDecoration:taken?"line-through":"none",fontFamily:"'Jost',sans-serif"}}>{t}</button>;})}
               </div>
             </>}
             <NavButtons step={step} setStep={setStep} canNext={!!form.date&&!!form.time}/>
@@ -975,8 +1001,17 @@ function InvoicePage({clients,invoices,SERVICES,createQuickInvoice,markPaid,dele
     if(!valid)return; setSaving(true);
     let cid=clientId;
     if(isNew&&clientName){
-      const {data,error}=await supabase.from("clients").insert({name:clientName,phone:phone||"",email:email||"",notes:""}).select().single();
-      if(!error){setClients(prev=>[data,...prev]);cid=data.id;}
+      // Check if client already exists by phone or email before inserting
+      const existing=clients.find(c=>
+        (email&&c.email&&c.email.toLowerCase()===email.toLowerCase())||
+        (phone&&c.phone&&c.phone.replace(/\D/g,"")===phone.replace(/\D/g,""))
+      );
+      if(existing){
+        cid=existing.id;
+      } else {
+        const {data,error}=await supabase.from("clients").insert({name:titleCase(clientName),phone:phone||"",email:email||"",notes:""}).select().single();
+        if(!error){setClients(prev=>[data,...prev]);cid=data.id;}
+      }
     }
     // Apply custom prices before saving
     const svcsWithPrices=selectedSvcs.map(s=>({...s,price:getSvcPrice(s),unitPrice:getSvcUnitPrice(s),qty:s.qty||1}));
@@ -1332,10 +1367,19 @@ function ApptModal({data,clients,SERVICES,onSave,setClients,onClose}) {
     if(!valid)return; setSaving(true);
     let cid=clientId;
     if(isNew&&clientName){
-      const {data:nd,error}=await supabase.from("clients").insert({name:clientName,phone:phone||"",email:email||"",notes:""}).select().single();
-      if(error){setSaving(false);return;}
-      cid=nd.id;
-      setClients(prev=>[nd,...prev]);
+      // Check if client already exists by phone or email before inserting
+      const existing=clients.find(c=>
+        (email&&c.email&&c.email.toLowerCase()===email.toLowerCase())||
+        (phone&&c.phone&&c.phone.replace(/\D/g,"")===phone.replace(/\D/g,""))
+      );
+      if(existing){
+        cid=existing.id;
+      } else {
+        const {data:nd,error}=await supabase.from("clients").insert({name:titleCase(clientName),phone:phone||"",email:email||"",notes:""}).select().single();
+        if(error){setSaving(false);return;}
+        cid=nd.id;
+        setClients(prev=>[nd,...prev]);
+      }
     }
     if(!cid){setSaving(false);return;}
     const ok=await onSave({id:data.id||"",clientId:cid,services:selected,date,time,specialRequest:special||null,invoiced:data.invoiced||false,source:data.source||"manual"});
@@ -1553,7 +1597,7 @@ function DealModal({deal,onSave,onClose}) {
   return (
     <Modal title={form.id?"Edit Deal":"New Deal"} onClose={onClose}>
       <div style={{display:"grid",gap:12}}>
-        <div><FieldLabel>Deal Name *</FieldLabel><input value={form.name} onChange={e=>set("name",e.target.value)} placeholder="e.g. Summer Glow Package" style={S.input}/></div>
+        <div><FieldLabel>Deal Name *</FieldLabel><input value={form.name} onChange={e=>set("name",e.target.value)} placeholder="Deal Name" style={S.input}/></div>
         <div><FieldLabel>Price (Rs.) *</FieldLabel><input type="number" inputMode="numeric" value={form.price} onChange={e=>set("price",e.target.value)} placeholder="e.g. 8000" style={S.input}/></div>
         <div><FieldLabel>Description</FieldLabel><textarea value={form.description} onChange={e=>set("description",e.target.value)} rows={2} placeholder="What's included…" style={{...S.input,resize:"vertical"}}/></div>
         <div><FieldLabel>Expiry Date</FieldLabel><input type="date" value={form.expiry} onChange={e=>set("expiry",e.target.value)} style={S.input}/></div>
