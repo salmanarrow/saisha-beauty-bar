@@ -25,7 +25,8 @@ const T = {
 
 const fmt  = (n) => `Rs. ${Number(n).toLocaleString("en-PK",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const fmtN = (n) => Number(n).toLocaleString("en-PK",{minimumFractionDigits:2,maximumFractionDigits:2});
-const todayStr    = () => new Date().toISOString().split("T")[0];
+// Local date (not UTC) — toISOString() rolls back a day between midnight and 5am in Pakistan
+const todayStr    = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
 const isPast      = (d) => d < todayStr();
 const isFuture    = (d) => d > todayStr();
 const isToday2    = (d) => d === todayStr();
@@ -37,6 +38,11 @@ function parseServices(raw) {
   if(!raw) return [];
   try { const p=typeof raw==="string"?JSON.parse(raw):raw; return Array.isArray(p)?p:[]; }
   catch { return []; }
+}
+
+// Escape text before writing it into the print window's HTML
+function escapeHtml(str) {
+  return String(str??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 }
 
 // Capitalise each word in a name — "ayesha khan" → "Ayesha Khan"
@@ -154,6 +160,10 @@ const TIME_SLOTS = [
   "6:00 PM","6:30 PM","7:00 PM","7:30 PM",
 ];
 
+// Sort times by clock order — plain string compare puts "1:00 PM" before "11:00 AM"
+const timeRank    = (t) => { const i=TIME_SLOTS.indexOf(t); return i===-1?TIME_SLOTS.length:i; };
+const byTime      = (a,b) => timeRank(a.time)-timeRank(b.time);
+
 // Inject viewport meta to prevent mobile zoom
 const viewportMeta = document.createElement("meta");
 viewportMeta.name = "viewport";
@@ -219,14 +229,17 @@ export default function App() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [{data:c},{data:a},{data:i},{data:d}] = await Promise.all([
+      const results = await Promise.all([
         supabase.from("clients").select("*").order("created_at",{ascending:false}),
         supabase.from("appointments").select("*").order("date").order("time"),
         supabase.from("invoices").select("*").order("created_at",{ascending:false}),
         supabase.from("deals").select("*").order("created_at",{ascending:false}),
       ]);
+      const [{data:c},{data:a},{data:i},{data:d}] = results;
+      const failed = results.find(r=>r.error);
+      if(failed) { console.error("Load failed:", failed.error); showToast("Could not load data — "+failed.error.message,"error"); }
       setClients(c||[]); setAppointments(a||[]); setInvoices(i||[]); setDeals(d||[]);
-    } catch { showToast("Could not load data","error"); }
+    } catch(e) { console.error("Load failed:", e); showToast("Could not reach the database","error"); }
     setLoading(false);
   };
 
@@ -289,33 +302,43 @@ export default function App() {
   };
 
   const deleteAppt = async (id) => {
+    if(!window.confirm("Remove this booking? This cannot be undone.")) return;
     const {error}=await supabase.from("appointments").delete().eq("id",id);
     if(error){showToast("Failed to remove","error");return;}
     setAppointments(prev=>prev.filter(a=>a.id!==id)); showToast("Appointment removed");
   };
 
   const handleBookingSubmit = async (booking) => {
-    // Match by email OR phone — same person even if name differs
-    let client=clients.find(c=>
+    // Match by email OR phone — same person even if name differs.
+    // The public booking page never loads the client list, so fetch it here
+    // (otherwise every online booking created a duplicate client).
+    let known=clients;
+    if(!known.length){
+      const {data:existing}=await supabase.from("clients").select("id,name,phone,email");
+      known=existing||[];
+    }
+    let client=known.find(c=>
       (booking.email&&c.email&&c.email.toLowerCase()===booking.email.toLowerCase())||
       (booking.phone&&c.phone&&c.phone.replace(/\D/g,"")===booking.phone.replace(/\D/g,""))
     );
     let clientId;
     if(!client){
-      const {data,error}=await supabase.from("clients").insert({name:titleCase(booking.name),phone:booking.phone,email:booking.email,notes:""}).select().single();
-      if(error){showToast("Booking failed","error");return false;}
+      const {data,error}=await supabase.from("clients").insert({name:titleCase(booking.name),phone:booking.phone,email:booking.email||"",notes:""}).select().single();
+      if(error){console.error("Booking failed:",error);showToast("Booking failed — "+error.message,"error");return false;}
       setClients(prev=>[data,...prev]); clientId=data.id;
     } else { clientId=client.id; }
     const servicesJson=JSON.stringify(booking.services||[]);
     const totalDuration=(booking.services||[]).reduce((s,sv)=>s+(sv.duration||0),0);
     const {data,error}=await supabase.from("appointments").insert({client_id:clientId,services:servicesJson,date:booking.date,time:booking.time,status:"confirmed",invoiced:false,source:"online",special_request:booking.notes||null,total_duration:totalDuration}).select().single();
-    if(error){showToast("Booking failed","error");return false;}
+    if(error){console.error("Booking failed:",error);showToast("Booking failed — "+error.message,"error");return false;}
     setAppointments(prev=>[...prev,data]); return true;
   };
 
+  // Next number = highest existing + 1. Counting rows reused numbers after an invoice was deleted.
   const getNextNum = async () => {
-    const {count}=await supabase.from("invoices").select("*",{count:"exact",head:true});
-    return "SBB-" + String((count||0)+1).padStart(3,"0");
+    const {data}=await supabase.from("invoices").select("invoice_num");
+    const max=(data||[]).reduce((m,r)=>{const n=parseInt(String(r.invoice_num||"").replace(/\D/g,""),10);return isNaN(n)?m:Math.max(m,n);},0);
+    return "SBB-" + String(max+1).padStart(3,"0");
   };
 
   const createInvoiceFromAppt = async (appt) => {
@@ -323,8 +346,8 @@ export default function App() {
     const client=clients.find(c=>c.id===appt.client_id);
     const total=services.reduce((s,sv)=>s+Number(sv.price||0),0);
     const invoiceNum=await getNextNum();
-    const {data,error}=await supabase.from("invoices").insert({invoice_num:invoiceNum,appointment_id:appt.id,client_id:appt.client_id,client_name:client?.name||"Guest",services_json:JSON.stringify(services),amount:total,date:appt.date,status:"unpaid",discount:0}).select().single();
-    if(error){showToast("Failed to create invoice","error");return null;}
+    const {data,error}=await supabase.from("invoices").insert({invoice_num:invoiceNum,appointment_id:appt.id,client_id:appt.client_id,client_name:client?.name||"Guest",services_json:JSON.stringify(services),amount:total,date:appt.date,status:"paid",discount:0}).select().single();
+    if(error){console.error("Invoice failed:",error);showToast("Failed to create invoice — "+error.message,"error");return null;}
     await supabase.from("appointments").update({invoiced:true}).eq("id",appt.id);
     setAppointments(prev=>prev.map(a=>a.id===appt.id?{...a,invoiced:true}:a));
     setInvoices(prev=>[data,...prev]); showToast("Invoice created ✦");
@@ -337,20 +360,15 @@ export default function App() {
     const total=subtotal-discAmt;
     const invoiceNum=await getNextNum();
     const svcsToStore=note?[{...services[0],name:note},...services.slice(1)]:services;
-    const {data,error}=await supabase.from("invoices").insert({invoice_num:invoiceNum,client_id:clientId||null,client_name:clientName||"Guest",services_json:JSON.stringify(svcsToStore),amount:total,date:date||todayStr(),status:"unpaid",discount:discAmt}).select().single();
-    if(error){showToast("Failed to create invoice","error");return false;}
+    const {data,error}=await supabase.from("invoices").insert({invoice_num:invoiceNum,client_id:clientId||null,client_name:clientName||"Guest",services_json:JSON.stringify(svcsToStore),amount:total,date:date||todayStr(),status:"paid",discount:discAmt}).select().single();
+    if(error){console.error("Invoice failed:",error);showToast("Failed to create invoice — "+error.message,"error");return false;}
     setInvoices(prev=>[data,...prev]); showToast("Invoice created ✦"); return data;
   };
 
-  const markPaid = async (id) => {
-    const {error}=await supabase.from("invoices").update({status:"paid"}).eq("id",id);
-    if(error){showToast("Failed","error");return;}
-    setInvoices(prev=>prev.map(i=>i.id===id?{...i,status:"paid"}:i)); showToast("Payment recorded ✦");
-  };
-
   const deleteInvoice = async (id) => {
+    if(!window.confirm("Delete this invoice? This cannot be undone.")) return;
     const {error}=await supabase.from("invoices").delete().eq("id",id);
-    if(error){showToast("Failed","error");return;}
+    if(error){showToast("Failed to delete invoice — "+error.message,"error");return;}
     setInvoices(prev=>prev.filter(i=>i.id!==id)); showToast("Invoice deleted");
   };
 
@@ -365,15 +383,25 @@ export default function App() {
       setDeals(prev=>[data,...prev]); showToast("Deal added ✦"); return true;
     }
   };
-  const deleteDeal = async (id) => { await supabase.from("deals").delete().eq("id",id); setDeals(prev=>prev.filter(d=>d.id!==id)); showToast("Deal removed"); };
-  const toggleDeal = async (id,active) => { await supabase.from("deals").update({active}).eq("id",id); setDeals(prev=>prev.map(d=>d.id===id?{...d,active}:d)); };
+  const deleteDeal = async (id) => {
+    if(!window.confirm("Delete this deal?")) return;
+    const {error}=await supabase.from("deals").delete().eq("id",id);
+    if(error){showToast("Failed to delete deal","error");return;}
+    setDeals(prev=>prev.filter(d=>d.id!==id)); showToast("Deal removed");
+  };
+  const toggleDeal = async (id,active) => {
+    const {error}=await supabase.from("deals").update({active}).eq("id",id);
+    if(error){showToast("Failed to update deal","error");return;}
+    setDeals(prev=>prev.map(d=>d.id===id?{...d,active}:d));
+  };
 
   const printInvoice = (inv) => {
     const services=parseServices(inv.services_json);
     const w=window.open("","_blank");
-    const rows=services.map(s=>"<tr><td>"+(s.qty&&s.qty>1?s.name+" ×"+s.qty:s.name)+"</td><td class='r'>"+fmtN(s.price)+"</td></tr>").join("");
+    if(!w){showToast("Allow pop-ups to print invoices","error");return;}
+    const rows=services.map(s=>"<tr><td>"+escapeHtml(s.qty&&s.qty>1?s.name+" ×"+s.qty:s.name)+"</td><td class='r'>"+fmtN(s.price)+"</td></tr>").join("");
     const discRow=Number(inv.discount)>0?"<tr><td>Discount</td><td class='r'>- "+fmtN(inv.discount)+"</td></tr>":"";
-    w.document.write("<!DOCTYPE html><html><head><title>"+inv.invoice_num+"</title>"
+    w.document.write("<!DOCTYPE html><html><head><title>"+escapeHtml(inv.invoice_num)+"</title>"
       +"<link href='https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Jost:wght@300;400&display=swap' rel='stylesheet'>"
       +"<style>"
       +"*{margin:0;padding:0;box-sizing:border-box}"
@@ -401,11 +429,11 @@ export default function App() {
       +"<div class='tagline'>Time to Glow</div>"
       +"</div>"
       +"<hr class='divider'/>"
-      +"<div class='row'><span class='lbl'>Invoice</span><span>"+inv.invoice_num+"</span></div>"
+      +"<div class='row'><span class='lbl'>Invoice</span><span>"+escapeHtml(inv.invoice_num)+"</span></div>"
       +"<div class='row'><span class='lbl'>Date</span><span>"+fmtDate(inv.date)+"</span></div>"
-      +"<div class='row'><span class='lbl'>Status</span><span class='badge'>"+inv.status+"</span></div>"
+      +"<div class='row'><span class='lbl'>Status</span><span class='badge'>"+escapeHtml(inv.status)+"</span></div>"
       +"<hr class='divider'/>"
-      +"<div class='row'><span class='lbl'>Client</span><span>"+inv.client_name+"</span></div>"
+      +"<div class='row'><span class='lbl'>Client</span><span>"+escapeHtml(inv.client_name)+"</span></div>"
       +"<hr class='divider'/>"
       +"<div class='lbl' style='margin-bottom:2mm'>Services</div>"
       +"<table><tbody>"
@@ -416,7 +444,8 @@ export default function App() {
       +"<hr class='divider'/>"
       +"<div class='footer'>Thank you for choosing Saisha Beauty ✦</div>"
       +"</body></html>");
-    w.document.close(); w.print();
+    w.document.close();
+    w.onload=()=>w.print();
   };
 
   if(loading) return (
@@ -427,7 +456,7 @@ export default function App() {
     </div>
   );
 
-  const shared={clients,setClients,appointments,invoices,deals,SERVICES,saveClient,deleteClient,saveAppt,deleteAppt,createInvoiceFromAppt,createQuickInvoice,markPaid,deleteInvoice,printInvoice,saveDeal,deleteDeal,toggleDeal,showToast};
+  const shared={clients,setClients,appointments,invoices,deals,SERVICES,saveClient,deleteClient,saveAppt,deleteAppt,createInvoiceFromAppt,createQuickInvoice,deleteInvoice,printInvoice,saveDeal,deleteDeal,toggleDeal,showToast};
 
   return (
     <BrowserRouter>
@@ -618,7 +647,7 @@ function BookingPage({onSubmit,appointments,SERVICES,deals,loadPublic,showToast}
   const toggleService=(svc)=>setSelected(prev=>prev.find(s=>s.id===svc.id)?prev.filter(s=>s.id!==svc.id):[...prev,svc]);
 
   const submit=async()=>{
-    if(!form.name||!form.email||!form.phone){showToast("Please fill in all required fields","error");return;}
+    if(!form.name||!form.phone){showToast("Please fill in all required fields","error");return;}
     setSubmitting(true); const ok=await onSubmit({...form,services:selected}); setSubmitting(false);
     if(ok) setDone(true);
   };
@@ -806,15 +835,15 @@ function BookingPage({onSubmit,appointments,SERVICES,deals,loadPublic,showToast}
             <PageTitle>Your Details</PageTitle>
             <div style={{display:"grid",gap:13}}>
               {[
-                ["name","Full Name","Your name","text","name"],
-                ["phone","Phone","03001234567","tel","tel"],
-                ["email","Email","hello@example.com","email","email"]
-              ].map(([k,l,ph,tp,ac])=>(
-                <div key={k}><FieldLabel>{l} *</FieldLabel><input type={tp} inputMode={tp==="tel"?"tel":tp==="email"?"email":"text"} autoComplete={ac} value={form[k]} onChange={e=>set(k,e.target.value)} placeholder={ph} style={S.input}/></div>
+                ["name","Full Name","Your name","text","name",true],
+                ["phone","Phone","03001234567","tel","tel",true],
+                ["email","Email","hello@example.com","email","email",false]
+              ].map(([k,l,ph,tp,ac,req])=>(
+                <div key={k}><FieldLabel>{l}{req?" *":<span style={{color:T.grayLight,fontWeight:"300",textTransform:"none",letterSpacing:0}}> (optional)</span>}</FieldLabel><input type={tp} inputMode={tp==="tel"?"tel":tp==="email"?"email":"text"} autoComplete={ac} value={form[k]} onChange={e=>set(k,e.target.value)} placeholder={ph} style={S.input}/></div>
               ))}
               <div><FieldLabel>Special Requests <span style={{color:T.grayLight,fontWeight:"300",textTransform:"none",letterSpacing:0}}>(optional)</span></FieldLabel><textarea value={form.notes} onChange={e=>set("notes",e.target.value)} rows={3} style={{...S.input,resize:"vertical"}} placeholder="Allergies, preferences…"/></div>
             </div>
-            <NavButtons step={step} setStep={setStep} canNext={!!form.name&&!!form.phone&&!!form.email}/>
+            <NavButtons step={step} setStep={setStep} canNext={!!form.name&&!!form.phone}/>
           </div>
         )}
 
@@ -855,19 +884,18 @@ function BookingPage({onSubmit,appointments,SERVICES,deals,loadPublic,showToast}
 }
 
 /* ════════════════ DASHBOARD ════════════════ */
-function Dashboard({clients,appointments,invoices,deals,SERVICES,saveClient,deleteClient,saveAppt,deleteAppt,createInvoiceFromAppt,createQuickInvoice,markPaid,deleteInvoice,printInvoice,saveDeal,deleteDeal,toggleDeal,showToast,setClients,role,managerName,onUpdateManagerName,screen,setScreen}) {
+function Dashboard({clients,appointments,invoices,deals,SERVICES,saveClient,deleteClient,saveAppt,deleteAppt,createInvoiceFromAppt,createQuickInvoice,deleteInvoice,printInvoice,saveDeal,deleteDeal,toggleDeal,showToast,setClients,role,managerName,onUpdateManagerName,screen,setScreen}) {
   const [tab,setTab]=useState("today");
   const [apptModal,setApptModal]=useState(null);
   const [clientModal,setClientModal]=useState(null);
   const isOwner=role==="owner";
   const [invoicePreview,setInvoicePreview]=useState(null);
   const cMap=useMemo(()=>Object.fromEntries(clients.map(c=>[c.id,c])),[clients]);
-  const todayAppts    = useMemo(()=>appointments.filter(a=>isToday2(a.date)).sort((a,b)=>a.time.localeCompare(b.time)),[appointments]);
-  const upcomingAppts = useMemo(()=>appointments.filter(a=>isFuture(a.date)).sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)),[appointments]);
-  const completedAppts= useMemo(()=>appointments.filter(a=>isPast(a.date)).sort((a,b)=>b.date.localeCompare(a.date)),[appointments]);
-  const allAppts      = useMemo(()=>[...appointments].sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)),[appointments]);
+  const todayAppts    = useMemo(()=>appointments.filter(a=>isToday2(a.date)).sort(byTime),[appointments]);
+  const upcomingAppts = useMemo(()=>appointments.filter(a=>isFuture(a.date)).sort((a,b)=>a.date.localeCompare(b.date)||byTime(a,b)),[appointments]);
+  const completedAppts= useMemo(()=>appointments.filter(a=>isPast(a.date)).sort((a,b)=>b.date.localeCompare(a.date)||byTime(a,b)),[appointments]);
+  const allAppts      = useMemo(()=>[...appointments].sort((a,b)=>a.date.localeCompare(b.date)||byTime(a,b)),[appointments]);
   const collected     = useMemo(()=>invoices.filter(i=>i.status==="paid").reduce((s,i)=>s+Number(i.amount),0),[invoices]);
-  const outstanding   = useMemo(()=>invoices.filter(i=>i.status==="unpaid").reduce((s,i)=>s+Number(i.amount),0),[invoices]);
   const todayRevenue  = useMemo(()=>invoices.filter(i=>i.status==="paid"&&i.date===todayStr()).reduce((s,i)=>s+Number(i.amount),0),[invoices]);
   const handleSaveAppt=async(a)=>{const ok=await saveAppt(a);if(ok)setApptModal(null);};
   const handleSaveClient=async(c)=>{const ok=await saveClient(c);if(ok)setClientModal(null);};
@@ -876,10 +904,11 @@ function Dashboard({clients,appointments,invoices,deals,SERVICES,saveClient,dele
     const inv=await createInvoiceFromAppt(appt);
     if(inv) setInvoicePreview(inv);
   };
-  const apptListProps={cMap,SERVICES,onEdit:setApptModal,onDelete:deleteAppt,onInvoice:handleCreateInvoice};
+  // Only the owner can remove bookings; managers see the lock icon instead
+  const apptListProps={cMap,SERVICES,onEdit:setApptModal,onDelete:isOwner?deleteAppt:null,onInvoice:handleCreateInvoice};
 
   if(screen==="invoices") return (
-    <InvoicePage clients={clients} invoices={invoices} SERVICES={SERVICES} createQuickInvoice={createQuickInvoice} markPaid={markPaid} deleteInvoice={isOwner?deleteInvoice:null} printInvoice={printInvoice} showToast={showToast} setClients={setClients} saveClient={saveClient}/>
+    <InvoicePage clients={clients} invoices={invoices} SERVICES={SERVICES} createQuickInvoice={createQuickInvoice} deleteInvoice={isOwner?deleteInvoice:null} printInvoice={printInvoice} showToast={showToast} setClients={setClients} saveClient={saveClient}/>
   );
 
   return (
@@ -895,9 +924,9 @@ function Dashboard({clients,appointments,invoices,deals,SERVICES,saveClient,dele
         </div>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderBottom:"1px solid #E8E8E8",background:T.parchment}}>
-        {[["Today",todayAppts.length],["Upcoming",upcomingAppts.length],["Collected",fmt(collected)],["Outstanding",fmt(outstanding)]].map(([l,v],i)=>(
-          <div key={l} style={{padding:"10px 6px",textAlign:"center",borderRight:i<3?"1px solid #E8E8E8":"none"}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",borderBottom:"1px solid #E8E8E8",background:T.parchment}}>
+        {[["Today",todayAppts.length],["Upcoming",upcomingAppts.length],["Collected",fmt(collected)]].map(([l,v],i)=>(
+          <div key={l} style={{padding:"10px 6px",textAlign:"center",borderRight:i<2?"1px solid #E8E8E8":"none"}}>
             <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:i<2?20:11,color:T.charcoal,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v}</div>
             <div style={{fontSize:8,letterSpacing:1,textTransform:"uppercase",color:T.grayLight}}>{l}</div>
           </div>
@@ -919,7 +948,7 @@ function Dashboard({clients,appointments,invoices,deals,SERVICES,saveClient,dele
             <SectionHeader title="All Bookings" action={<button className="outline-btn" onClick={()=>setApptModal({date:todayStr()})} style={S.outlineBtn}>+ Add</button>}/>
             {allAppts.length===0?<Empty icon="📋" text="No bookings yet"/>:(
               <div style={{display:"grid",gap:10}}>
-                {allAppts.map(a=><ApptCard key={a.id} appt={a} client={cMap[a.client_id]} SERVICES={SERVICES} showDate canDelete={!isPast(a.date)} completed={isPast(a.date)} onEdit={()=>setApptModal(a)} onDelete={!isPast(a.date)?()=>deleteAppt(a.id):null} onInvoice={async()=>{const inv=await createInvoiceFromAppt(a);if(inv)setInvoicePreview(inv);}}/>)}
+                {allAppts.map(a=><ApptCard key={a.id} appt={a} client={cMap[a.client_id]} SERVICES={SERVICES} showDate canDelete={isOwner&&!isPast(a.date)} completed={isPast(a.date)} onEdit={()=>setApptModal(a)} onDelete={isOwner&&!isPast(a.date)?()=>deleteAppt(a.id):null} onInvoice={async()=>{const inv=await createInvoiceFromAppt(a);if(inv)setInvoicePreview(inv);}}/>)}
               </div>
             )}
           </div>
@@ -955,7 +984,7 @@ function Dashboard({clients,appointments,invoices,deals,SERVICES,saveClient,dele
             </div>
           </div>
         )}
-        {tab==="invoices"&&<InvoiceListTab invoices={invoices} markPaid={markPaid} deleteInvoice={isOwner?deleteInvoice:null} printInvoice={printInvoice}/>}
+        {tab==="invoices"&&<InvoiceListTab invoices={invoices} deleteInvoice={isOwner?deleteInvoice:null} printInvoice={printInvoice}/>}
         {isOwner&&tab==="deals"&&<DealsTab deals={deals} saveDeal={saveDeal} deleteDeal={deleteDeal} toggleDeal={toggleDeal}/>}
         {isOwner&&tab==="finances"&&<FinancesTab invoices={invoices}/>}
         {isOwner&&tab==="settings"&&<SettingsTab managerName={managerName} onUpdate={onUpdateManagerName} showToast={showToast}/>}
@@ -963,13 +992,13 @@ function Dashboard({clients,appointments,invoices,deals,SERVICES,saveClient,dele
 
       {apptModal!==null&&<ApptModal data={apptModal} clients={clients} SERVICES={SERVICES} onSave={handleSaveAppt} setClients={setClients} onClose={()=>setApptModal(null)}/>}
       {clientModal!==null&&<ClientModal data={clientModal} onSave={handleSaveClient} onClose={()=>setClientModal(null)}/>}
-      {invoicePreview&&<InvoicePreviewModal inv={invoicePreview} markPaid={markPaid} printInvoice={printInvoice} onClose={()=>setInvoicePreview(null)} setInvPreview={setInvoicePreview}/>}
+      {invoicePreview&&<InvoicePreviewModal inv={invoicePreview} printInvoice={printInvoice} onClose={()=>setInvoicePreview(null)}/>}
     </div>
   );
 }
 
 /* ════════════════ INVOICE PAGE ════════════════ */
-function InvoicePage({clients,invoices,SERVICES,createQuickInvoice,markPaid,deleteInvoice,printInvoice,showToast,setClients,saveClient}) {
+function InvoicePage({clients,invoices,SERVICES,createQuickInvoice,deleteInvoice,printInvoice,showToast,setClients,saveClient}) {
   const [clientName,setClientName]=useState(""); const [clientId,setClientId]=useState("");
   const [phone,setPhone]=useState(""); const [email,setEmail]=useState(""); const [isNew,setIsNew]=useState(true);
   const [suggestions,setSuggestions]=useState([]); const [showSugg,setShowSugg]=useState(false);
@@ -1152,24 +1181,23 @@ function InvoicePage({clients,invoices,SERVICES,createQuickInvoice,markPaid,dele
           </button>
         </div>
 
-        <InvoiceListTab invoices={invoices} markPaid={markPaid} deleteInvoice={deleteInvoice} printInvoice={printInvoice} compact/>
+        <InvoiceListTab invoices={invoices} deleteInvoice={deleteInvoice} printInvoice={printInvoice} compact/>
       </div>
-    {invPreviewLocal&&<InvoicePreviewModal inv={invPreviewLocal} markPaid={markPaid} printInvoice={printInvoice} onClose={()=>setInvPreviewLocal(null)} setInvPreview={setInvPreviewLocal}/>}
+    {invPreviewLocal&&<InvoicePreviewModal inv={invPreviewLocal} printInvoice={printInvoice} onClose={()=>setInvPreviewLocal(null)}/>}
     </div>
   );
 }
 
 /* ════════════════ INVOICE LIST TAB ════════════════ */
-function InvoiceListTab({invoices,markPaid,deleteInvoice,printInvoice,compact}) {
-  const [filter,setFilter]=useState("all"); const [search,setSearch]=useState(""); const [preview,setPreview]=useState(null);
+function InvoiceListTab({invoices,deleteInvoice,printInvoice,compact}) {
+  const [search,setSearch]=useState(""); const [preview,setPreview]=useState(null);
   const collected  = useMemo(()=>invoices.filter(i=>i.status==="paid").reduce((s,i)=>s+Number(i.amount),0),[invoices]);
-  const outstanding= useMemo(()=>invoices.filter(i=>i.status==="unpaid").reduce((s,i)=>s+Number(i.amount),0),[invoices]);
-  const filtered   = useMemo(()=>invoices.filter(i=>filter==="all"||i.status===filter).filter(i=>(i.client_name||"").toLowerCase().includes(search.toLowerCase())||(i.invoice_num||"").toLowerCase().includes(search.toLowerCase())),[invoices,filter,search]);
+  const filtered   = useMemo(()=>invoices.filter(i=>(i.client_name||"").toLowerCase().includes(search.toLowerCase())||(i.invoice_num||"").toLowerCase().includes(search.toLowerCase())),[invoices,search]);
   return (
     <div style={compact?{}:{animation:"fadeUp .3s ease"}}>
       {compact?<div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,color:T.charcoal,marginBottom:14}}>Recent Invoices</div>:<SectionHeader title="Invoices"/>}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:14}}>
-        {[["Total",invoices.length],["Collected",fmt(collected)],["Outstanding",fmt(outstanding)]].map(([l,v],i)=>(
+      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:14}}>
+        {[["Total",invoices.length],["Collected",fmt(collected)]].map(([l,v],i)=>(
           <div key={l} style={{background:T.white,border:"1px solid #E8E8E8",borderRadius:10,padding:"11px",textAlign:"center"}}>
             <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:i===0?20:13,color:T.charcoal,marginBottom:2}}>{v}</div>
             <div style={{fontSize:9,letterSpacing:1,textTransform:"uppercase",color:T.grayLight}}>{l}</div>
@@ -1178,9 +1206,6 @@ function InvoiceListTab({invoices,markPaid,deleteInvoice,printInvoice,compact}) 
       </div>
       <div style={{display:"flex",gap:7,marginBottom:11,flexWrap:"wrap"}}>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{...S.input,maxWidth:190}}/>
-        {["all","unpaid","paid"].map(f=>(
-          <button key={f} onClick={()=>setFilter(f)} style={{...S.outlineBtn,padding:"7px 12px",fontSize:12,background:filter===f?T.charcoal:"transparent",color:filter===f?T.white:T.charcoal,borderColor:filter===f?T.charcoal:"#E8E8E8",textTransform:"capitalize"}}>{f==="all"?"All":f.charAt(0).toUpperCase()+f.slice(1)}</button>
-        ))}
       </div>
       {filtered.length===0?<Empty icon="◻" text="No invoices found"/>:(
         <div style={{display:"grid",gap:8}}>
@@ -1205,7 +1230,6 @@ function InvoiceListTab({invoices,markPaid,deleteInvoice,printInvoice,compact}) 
                     <span style={{fontSize:9,letterSpacing:1,padding:"2px 7px",borderRadius:20,textTransform:"uppercase",display:"inline-block",marginTop:3,background:inv.status==="paid"?T.greenLight:T.parchment,color:inv.status==="paid"?T.green:T.grayLight,border:"1px solid "+(inv.status==="paid"?"#A8D4B0":"#E8E8E8")}}>{inv.status}</span>
                   </div>
                   <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                    {inv.status==="unpaid"&&<button className="outline-btn" onClick={()=>markPaid(inv.id)} style={{...S.outlineBtn,fontSize:11,padding:"4px 8px",color:T.green,borderColor:"#A8D4B0"}}>Paid</button>}
                     <button className="outline-btn" onClick={()=>setPreview(inv)} style={{...S.outlineBtn,fontSize:11,padding:"4px 8px"}}>View</button>
                     <button className="outline-btn" onClick={()=>printInvoice(inv)} style={{...S.outlineBtn,fontSize:11,padding:"4px 8px"}}>Print</button>
                     {deleteInvoice&&<button className="outline-btn" onClick={()=>deleteInvoice(inv.id)} style={{...S.outlineBtn,fontSize:11,padding:"4px 8px",color:T.red,borderColor:"#D4A0A0"}}>Del</button>}
@@ -1216,13 +1240,13 @@ function InvoiceListTab({invoices,markPaid,deleteInvoice,printInvoice,compact}) 
           })}
         </div>
       )}
-      {preview&&<InvoicePreviewModal inv={preview} markPaid={markPaid} printInvoice={printInvoice} onClose={()=>setPreview(null)} setInvPreview={setPreview}/>}
+      {preview&&<InvoicePreviewModal inv={preview} printInvoice={printInvoice} onClose={()=>setPreview(null)}/>}
     </div>
   );
 }
 
 /* ════════════════ INVOICE PREVIEW MODAL ════════════════ */
-function InvoicePreviewModal({inv,markPaid,printInvoice,onClose,setInvPreview}) {
+function InvoicePreviewModal({inv,printInvoice,onClose}) {
   const services=parseServices(inv.services_json);
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,animation:"fadeIn .2s ease"}} onClick={onClose}>
@@ -1261,7 +1285,6 @@ function InvoicePreviewModal({inv,markPaid,printInvoice,onClose,setInvPreview}) 
           </div>
         </div>
         <div style={{display:"flex",gap:7,justifyContent:"flex-end"}}>
-          {inv.status==="unpaid"&&<button className="outline-btn" onClick={()=>{markPaid(inv.id);setInvPreview(p=>({...p,status:"paid"}));}} style={{...S.outlineBtn,color:T.green,borderColor:"#A8D4B0"}}>Mark Paid</button>}
           <button className="outline-btn" onClick={()=>printInvoice(inv)} style={S.outlineBtn}>Print / PDF</button>
           <button onClick={onClose} style={{...S.outlineBtn,color:T.grayLight}}>Close</button>
         </div>
@@ -1593,7 +1616,7 @@ function DealModal({deal,onSave,onClose}) {
   const [saving,setSaving]=useState(false);
   const set=(k,v)=>setForm(p=>({...p,[k]:v}));
   const valid=form.name&&form.price;
-  const handleSave=async()=>{if(!valid)return;setSaving(true);await onSave({...form,price:Number(form.price)});setSaving(false);onClose();};
+  const handleSave=async()=>{if(!valid)return;setSaving(true);const ok=await onSave({...form,price:Number(form.price)});setSaving(false);if(ok)onClose();};
   return (
     <Modal title={form.id?"Edit Deal":"New Deal"} onClose={onClose}>
       <div style={{display:"grid",gap:12}}>
