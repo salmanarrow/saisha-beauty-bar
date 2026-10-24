@@ -211,11 +211,21 @@ export default function App() {
   const [appointments, setAppointments] = useState([]);
   const [invoices,     setInvoices]     = useState([]);
   const [deals,        setDeals]        = useState([]);
+  const [customServices, setCustomServices] = useState([]); // services the owner added (services table)
   const [loading,      setLoading]      = useState(false);
   const [toast,        setToast]        = useState(null);
 
   const SERVICES = useMemo(() => [
     ...BASE_SERVICES,
+    ...customServices
+      .filter(sv => sv.active)
+      .map(sv => ({
+        id:       "svc_" + sv.id,
+        name:     sv.name,
+        price:    Number(sv.price),
+        duration: Number(sv.duration) || 0,
+        category: sv.category,
+      })),
     ...deals
       .filter(d => d.active && (!d.expiry || d.expiry >= todayStr()))
       .map(d => ({
@@ -227,7 +237,7 @@ export default function App() {
         isDeal:      true,
         description: d.description,
       })),
-  ], [deals]);
+  ], [deals, customServices]);
 
   const showToast = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3500); };
   const updateManagerName = (n) => { setManagerName(n); localStorage.setItem(CONFIG.managerNameKey, n); };
@@ -259,8 +269,15 @@ export default function App() {
       const failed = results.find(r=>r.error);
       if(failed) { console.error("Load failed:", failed.error); showToast("Could not load data — "+failed.error.message,"error"); }
       setClients(c||[]); setAppointments(a||[]); setInvoices(i||[]); setDeals(d||[]);
+      await loadServices();
     } catch(e) { console.error("Load failed:", e); showToast("Could not reach the database","error"); }
     setLoading(false);
+  };
+
+  const loadServices = async () => {
+    const {data,error} = await supabase.from("services").select("*").order("created_at");
+    if(error) { console.warn("Custom services not loaded:", error.message); return; }
+    setCustomServices(data||[]);
   };
 
   // Lightweight load for the public booking page — only needs deals + taken slots.
@@ -274,6 +291,7 @@ export default function App() {
       ]);
       setAppointments(a||[]);
       setDeals(d||[]);
+      await loadServices();
     } catch { /* silent — booking page still works, just no taken slots or deals */ }
   };
 
@@ -407,6 +425,30 @@ export default function App() {
     if(error){showToast("Failed to delete deal","error");return;}
     setDeals(prev=>prev.filter(d=>d.id!==id)); showToast("Deal removed");
   };
+  const saveService = async (svc) => {
+    const row={name:svc.name.trim(),category:svc.category.trim(),price:Number(svc.price),duration:Number(svc.duration)||0,active:svc.active};
+    if(svc.id){
+      const {error}=await supabase.from("services").update(row).eq("id",svc.id);
+      if(error){showToast("Failed to update service — "+error.message,"error");return false;}
+      setCustomServices(prev=>prev.map(x=>x.id===svc.id?{...x,...row}:x)); showToast("Service updated ✦"); return true;
+    } else {
+      const {data,error}=await supabase.from("services").insert({...row,active:true}).select().single();
+      if(error){showToast("Failed to add service — "+error.message,"error");return false;}
+      setCustomServices(prev=>[...prev,data]); showToast("Service added ✦"); return true;
+    }
+  };
+  const deleteService = async (id) => {
+    if(!window.confirm("Delete this service? Past bookings and invoices keep their copy.")) return;
+    const {error}=await supabase.from("services").delete().eq("id",id);
+    if(error){showToast("Failed to delete service","error");return;}
+    setCustomServices(prev=>prev.filter(x=>x.id!==id)); showToast("Service removed");
+  };
+  const toggleCustomService = async (id,active) => {
+    const {error}=await supabase.from("services").update({active}).eq("id",id);
+    if(error){showToast("Failed to update service","error");return;}
+    setCustomServices(prev=>prev.map(x=>x.id===id?{...x,active}:x));
+  };
+
   const toggleDeal = async (id,active) => {
     const {error}=await supabase.from("deals").update({active}).eq("id",id);
     if(error){showToast("Failed to update deal","error");return;}
@@ -474,7 +516,7 @@ export default function App() {
     </div>
   );
 
-  const shared={clients,setClients,appointments,invoices,deals,SERVICES,saveClient,deleteClient,saveAppt,deleteAppt,createInvoiceFromAppt,createQuickInvoice,deleteInvoice,printInvoice,saveDeal,deleteDeal,toggleDeal,showToast};
+  const shared={clients,setClients,appointments,invoices,deals,SERVICES,saveClient,deleteClient,saveAppt,deleteAppt,createInvoiceFromAppt,createQuickInvoice,deleteInvoice,printInvoice,saveDeal,deleteDeal,toggleDeal,customServices,saveService,deleteService,toggleCustomService,showToast};
 
   return (
     <BrowserRouter>
@@ -920,7 +962,7 @@ function BookingPage({onSubmit,appointments,SERVICES,deals,loadPublic,showToast}
 }
 
 /* ════════════════ DASHBOARD ════════════════ */
-function Dashboard({clients,appointments,invoices,deals,SERVICES,saveClient,deleteClient,saveAppt,deleteAppt,createInvoiceFromAppt,createQuickInvoice,deleteInvoice,printInvoice,saveDeal,deleteDeal,toggleDeal,showToast,setClients,role,managerName,onUpdateManagerName,screen,setScreen}) {
+function Dashboard({clients,appointments,invoices,deals,SERVICES,saveClient,deleteClient,saveAppt,deleteAppt,createInvoiceFromAppt,createQuickInvoice,deleteInvoice,printInvoice,saveDeal,deleteDeal,toggleDeal,customServices,saveService,deleteService,toggleCustomService,showToast,setClients,role,managerName,onUpdateManagerName,screen,setScreen}) {
   const [tab,setTab]=useState("today");
   const [apptModal,setApptModal]=useState(null);
   const [clientModal,setClientModal]=useState(null);
@@ -935,7 +977,7 @@ function Dashboard({clients,appointments,invoices,deals,SERVICES,saveClient,dele
   const todayRevenue  = useMemo(()=>invoices.filter(i=>i.status==="paid"&&i.date===todayStr()).reduce((s,i)=>s+Number(i.amount),0),[invoices]);
   const handleSaveAppt=async(a)=>{const ok=await saveAppt(a);if(ok)setApptModal(null);};
   const handleSaveClient=async(c)=>{const ok=await saveClient(c);if(ok)setClientModal(null);};
-  const TABS=[["today","Today"],["upcoming","Upcoming"],["completed","Completed"],["all","All Bookings"],["clients","Clients"],["invoices","Invoices"],...(isOwner?[["deals","Deals ✦"],["finances","Finances"],["settings","Settings"]]:[])];
+  const TABS=[["today","Today"],["upcoming","Upcoming"],["completed","Completed"],["all","All Bookings"],["clients","Clients"],["invoices","Invoices"],...(isOwner?[["services","Services"],["deals","Deals ✦"],["finances","Finances"],["settings","Settings"]]:[])];
   const handleCreateInvoice=async(appt)=>{
     const inv=await createInvoiceFromAppt(appt);
     if(inv) setInvoicePreview(inv);
@@ -1021,6 +1063,7 @@ function Dashboard({clients,appointments,invoices,deals,SERVICES,saveClient,dele
           </div>
         )}
         {tab==="invoices"&&<InvoiceListTab invoices={invoices} deleteInvoice={isOwner?deleteInvoice:null} printInvoice={printInvoice}/>}
+        {isOwner&&tab==="services"&&<ServicesTab customServices={customServices} saveService={saveService} deleteService={deleteService} toggleService={toggleCustomService}/>}
         {isOwner&&tab==="deals"&&<DealsTab deals={deals} saveDeal={saveDeal} deleteDeal={deleteDeal} toggleDeal={toggleDeal}/>}
         {isOwner&&tab==="finances"&&<FinancesTab invoices={invoices}/>}
         {isOwner&&tab==="settings"&&<SettingsTab managerName={managerName} onUpdate={onUpdateManagerName} showToast={showToast}/>}
@@ -1665,6 +1708,69 @@ function DealModal({deal,onSave,onClose}) {
       <div style={{display:"flex",gap:7,justifyContent:"flex-end",marginTop:16}}>
         <button className="outline-btn" onClick={onClose} style={S.outlineBtn}>Cancel</button>
         <button className="gold-btn" onClick={handleSave} disabled={!valid||saving} style={{...S.goldBtn,opacity:valid&&!saving?1:0.4}}>{saving?"Saving…":form.id?"Update":"Add Deal"}</button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ════════════════ SERVICES TAB ════════════════ */
+function ServicesTab({customServices,saveService,deleteService,toggleService}) {
+  const [modal,setModal]=useState(null);
+  const categories=useMemo(()=>[...new Set([...BASE_SERVICES.map(s=>s.category),...customServices.map(s=>s.category)])],[customServices]);
+  const active=customServices.filter(s=>s.active), hidden=customServices.filter(s=>!s.active);
+  const row=(sv,inactive)=>(
+    <div key={sv.id} style={{background:T.white,border:"1px solid #E8E8E8",borderRadius:12,padding:"13px 17px",display:"flex",alignItems:"center",gap:13,flexWrap:"wrap",opacity:inactive?0.7:1}}>
+      <div style={{flex:1,minWidth:150}}>
+        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,color:T.charcoal}}>{sv.name}</div>
+        <div style={{fontSize:11,color:T.grayLight}}>{sv.category}{Number(sv.duration)>0?" · "+sv.duration+" min":""}</div>
+      </div>
+      <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:17,color:T.charcoal}}>{fmt(sv.price)}</div>
+      <div style={{display:"flex",gap:5}}>
+        <button className="outline-btn" onClick={()=>toggleService(sv.id,!sv.active)} style={{...S.outlineBtn,fontSize:11,padding:"4px 9px",color:inactive?T.green:T.grayLight,borderColor:inactive?"#A8D4B0":"#E8E8E8"}}>{inactive?"Show":"Hide"}</button>
+        <button className="outline-btn" onClick={()=>setModal(sv)} style={{...S.outlineBtn,fontSize:11,padding:"4px 9px"}}>Edit</button>
+        <button className="outline-btn" onClick={()=>deleteService(sv.id)} style={{...S.outlineBtn,fontSize:11,padding:"4px 9px",color:T.red,borderColor:"#D4A0A0"}}>Delete</button>
+      </div>
+    </div>
+  );
+  return (
+    <div style={{animation:"fadeUp .3s ease"}}>
+      <SectionHeader title="Services" action={<button className="gold-btn" onClick={()=>setModal({})} style={S.goldBtn}>+ Add Service</button>}/>
+      <div style={{background:T.parchment,border:"1px solid #E8E8E8",borderRadius:10,padding:"9px 13px",marginBottom:18,fontSize:13,color:T.grayLight}}>✦ Services you add here appear on the booking page, in new bookings and on invoices. Hidden services stay saved but don't show on the menu.</div>
+      {customServices.length===0&&<Empty icon="✦" text="No added services yet"/>}
+      {active.length>0&&<div style={{marginBottom:18}}><div style={{fontSize:9,letterSpacing:3,textTransform:"uppercase",color:T.gold,marginBottom:10}}>On the menu</div><div style={{display:"grid",gap:9}}>{active.map(sv=>row(sv,false))}</div></div>}
+      {hidden.length>0&&<div><div style={{fontSize:9,letterSpacing:3,textTransform:"uppercase",color:T.grayLight,marginBottom:10}}>Hidden</div><div style={{display:"grid",gap:9}}>{hidden.map(sv=>row(sv,true))}</div></div>}
+      {modal!==null&&<ServiceModal svc={modal} categories={categories} onSave={saveService} onClose={()=>setModal(null)}/>}
+    </div>
+  );
+}
+function ServiceModal({svc,categories,onSave,onClose}) {
+  const [form,setForm]=useState({id:svc.id||"",name:svc.name||"",category:svc.category||categories[0]||"",price:svc.price??"",duration:svc.duration??"",active:svc.active!==undefined?svc.active:true});
+  const [newCat,setNewCat]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const valid=form.name.trim()&&form.category.trim()&&form.price!==""&&Number(form.price)>=0;
+  const handleSave=async()=>{if(!valid)return;setSaving(true);const ok=await onSave(form);setSaving(false);if(ok)onClose();};
+  return (
+    <Modal title={form.id?"Edit Service":"New Service"} onClose={onClose}>
+      <div style={{display:"grid",gap:12}}>
+        <div><FieldLabel>Service Name *</FieldLabel><input value={form.name} onChange={e=>set("name",e.target.value)} placeholder="e.g. Lash Lift" style={S.input}/></div>
+        <div>
+          <FieldLabel>Category *</FieldLabel>
+          {newCat
+            ?<input value={form.category} onChange={e=>set("category",e.target.value)} placeholder="New category name" style={S.input} autoFocus/>
+            :<select value={form.category} onChange={e=>{if(e.target.value==="__new"){setNewCat(true);set("category","");}else set("category",e.target.value);}} style={S.input}>
+              {categories.map(c=><option key={c} value={c}>{c}</option>)}
+              <option value="__new">+ New category…</option>
+            </select>}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <div><FieldLabel>Price (Rs.) *</FieldLabel><input type="number" inputMode="numeric" min="0" value={form.price} onChange={e=>set("price",e.target.value)} placeholder="e.g. 3500" style={S.input}/></div>
+          <div><FieldLabel>Duration (min)</FieldLabel><input type="number" inputMode="numeric" min="0" value={form.duration} onChange={e=>set("duration",e.target.value)} placeholder="e.g. 45" style={S.input}/></div>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:7,justifyContent:"flex-end",marginTop:16}}>
+        <button className="outline-btn" onClick={onClose} style={S.outlineBtn}>Cancel</button>
+        <button className="gold-btn" onClick={handleSave} disabled={!valid||saving} style={{...S.goldBtn,opacity:valid&&!saving?1:0.4}}>{saving?"Saving…":form.id?"Update":"Add Service"}</button>
       </div>
     </Modal>
   );
