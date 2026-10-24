@@ -8,10 +8,17 @@ fontLink.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ita
 document.head.appendChild(fontLink);
 
 const CONFIG = {
-  ownerPassword:   "Saisha@123",
-  managerPassword: "Beauty@38",
   ownerName:       "Saisha",
   managerNameKey:  "sbb_manager_name",
+  // Staff log in with a username; Supabase Auth stores it as <username>@<staffDomain>.
+  // No email is ever sent to these addresses.
+  staffDomain:     "saishabeauty.staff",
+};
+
+// Role comes from the Supabase account (app_metadata is set by SQL, users can't change it)
+const roleFromSession = (session) => {
+  const r = session?.user?.app_metadata?.role;
+  return r === "owner" || r === "manager" ? r : null;
 };
 
 const T = {
@@ -198,6 +205,7 @@ const css = `
 /* ════════════════ ROOT ════════════════ */
 export default function App() {
   const [role,        setRole]        = useState(null);
+  const [authReady,   setAuthReady]   = useState(false);
   const [managerName, setManagerName] = useState(() => localStorage.getItem(CONFIG.managerNameKey) || "Neelum");
   const [clients,      setClients]      = useState([]);
   const [appointments, setAppointments] = useState([]);
@@ -224,7 +232,19 @@ export default function App() {
   const showToast = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3500); };
   const updateManagerName = (n) => { setManagerName(n); localStorage.setItem(CONFIG.managerNameKey, n); };
 
-  useEffect(() => { if(role && role !== "booking") loadAll(); }, [role]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Restore a saved login on page load and follow sign-in / sign-out
+  useEffect(() => {
+    supabase.auth.getSession().then(({data}) => { setRole(roleFromSession(data.session)); setAuthReady(true); });
+    const {data:sub} = supabase.auth.onAuthStateChange((_event, session) => setRole(roleFromSession(session)));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setRole(null); setClients([]); setAppointments([]); setInvoices([]);
+  };
+
+  useEffect(() => { if(role) loadAll(); }, [role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadAll = async () => {
     setLoading(true);
@@ -243,11 +263,13 @@ export default function App() {
     setLoading(false);
   };
 
-  // Lightweight load for the public booking page — only needs deals + appointments
+  // Lightweight load for the public booking page — only needs deals + taken slots.
+  // Visitors can't read the appointments table; taken_slots() returns just date + time.
   const loadPublic = async () => {
+    if(role) return; // staff already have the full data loaded
     try {
       const [{data:a},{data:d}] = await Promise.all([
-        supabase.from("appointments").select("date,time").order("date"),
+        supabase.rpc("taken_slots"),
         supabase.from("deals").select("*").order("created_at",{ascending:false}),
       ]);
       setAppointments(a||[]);
@@ -308,30 +330,26 @@ export default function App() {
     setAppointments(prev=>prev.filter(a=>a.id!==id)); showToast("Appointment removed");
   };
 
+  // Visitors can't read or write tables directly; book_appointment() matches the
+  // returning client by phone/email and creates the booking inside the database.
   const handleBookingSubmit = async (booking) => {
-    // Match by email OR phone — same person even if name differs.
-    // The public booking page never loads the client list, so fetch it here
-    // (otherwise every online booking created a duplicate client).
-    let known=clients;
-    if(!known.length){
-      const {data:existing}=await supabase.from("clients").select("id,name,phone,email");
-      known=existing||[];
+    const services=booking.services||[];
+    const {error}=await supabase.rpc("book_appointment",{
+      p_name:     titleCase(booking.name),
+      p_phone:    booking.phone,
+      p_email:    booking.email||"",
+      p_services: JSON.stringify(services),
+      p_date:     booking.date,
+      p_time:     booking.time,
+      p_notes:    booking.notes||"",
+      p_duration: services.reduce((s,sv)=>s+(sv.duration||0),0),
+    });
+    if(error){
+      console.error("Booking failed:",error);
+      showToast(error.message.includes("slot_taken")?"That time was just booked — please pick another":"Booking failed — please try again","error");
+      return false;
     }
-    let client=known.find(c=>
-      (booking.email&&c.email&&c.email.toLowerCase()===booking.email.toLowerCase())||
-      (booking.phone&&c.phone&&c.phone.replace(/\D/g,"")===booking.phone.replace(/\D/g,""))
-    );
-    let clientId;
-    if(!client){
-      const {data,error}=await supabase.from("clients").insert({name:titleCase(booking.name),phone:booking.phone,email:booking.email||"",notes:""}).select().single();
-      if(error){console.error("Booking failed:",error);showToast("Booking failed — "+error.message,"error");return false;}
-      setClients(prev=>[data,...prev]); clientId=data.id;
-    } else { clientId=client.id; }
-    const servicesJson=JSON.stringify(booking.services||[]);
-    const totalDuration=(booking.services||[]).reduce((s,sv)=>s+(sv.duration||0),0);
-    const {data,error}=await supabase.from("appointments").insert({client_id:clientId,services:servicesJson,date:booking.date,time:booking.time,status:"confirmed",invoiced:false,source:"online",special_request:booking.notes||null,total_duration:totalDuration}).select().single();
-    if(error){console.error("Booking failed:",error);showToast("Booking failed — "+error.message,"error");return false;}
-    setAppointments(prev=>[...prev,data]); return true;
+    setAppointments(prev=>[...prev,{date:booking.date,time:booking.time}]); return true;
   };
 
   // Next number = highest existing + 1. Counting rows reused numbers after an invoice was deleted.
@@ -448,7 +466,7 @@ export default function App() {
     w.onload=()=>w.print();
   };
 
-  if(loading) return (
+  if(loading || !authReady) return (
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.white,gap:16}}>
       <div style={{width:36,height:36,borderRadius:"50%",border:"2px solid #E8E8E8",borderTopColor:T.gold,animation:"spin .8s linear infinite"}}/>
       <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,letterSpacing:3,color:T.charcoal}}>Saisha Beauty</div>
@@ -485,20 +503,22 @@ export default function App() {
 
           {/* /manager — Manager login + dashboard */}
           <Route path="/manager" element={
+            role==="owner" ? <Navigate to="/owner" replace/> :
             role==="manager"
-              ? <AppShell role="manager" userName={managerName} onLogout={()=>setRole(null)}>
+              ? <AppShell role="manager" userName={managerName} onLogout={signOut}>
                   <Dashboard {...shared} role="manager" managerName={managerName} onUpdateManagerName={updateManagerName}/>
                 </AppShell>
-              : <StaffLogin mode="manager" onLogin={setRole}/>
+              : <StaffLogin mode="manager"/>
           }/>
 
           {/* /owner — Owner login + dashboard */}
           <Route path="/owner" element={
+            role==="manager" ? <Navigate to="/manager" replace/> :
             role==="owner"
-              ? <AppShell role="owner" userName={CONFIG.ownerName} onLogout={()=>setRole(null)}>
+              ? <AppShell role="owner" userName={CONFIG.ownerName} onLogout={signOut}>
                   <Dashboard {...shared} role="owner" managerName={managerName} onUpdateManagerName={updateManagerName}/>
                 </AppShell>
-              : <StaffLogin mode="owner" onLogin={setRole}/>
+              : <StaffLogin mode="owner"/>
           }/>
 
           {/* catch-all */}
@@ -511,14 +531,22 @@ export default function App() {
 
 
 /* ════════════════ STAFF LOGIN ════════════════ */
-function StaffLogin({onLogin, mode}) {
+function StaffLogin({mode}) {
   const navigate  = useNavigate();
+  const [username,setUsername] = useState("");
   const [pw,setPw]   = useState("");
-  const [err,setErr] = useState(false);
+  const [err,setErr] = useState("");
+  const [busy,setBusy] = useState(false);
 
-  const tryLogin=()=>{
-    const correct=mode==="owner"?CONFIG.ownerPassword:CONFIG.managerPassword;
-    if(pw===correct){onLogin(mode);}else{setErr(true);setPw("");}
+  // Success is picked up by onAuthStateChange in App, which switches to the dashboard
+  const tryLogin=async()=>{
+    const u=username.trim().toLowerCase();
+    if(!u||!pw||busy) return;
+    setBusy(true); setErr("");
+    const {data,error}=await supabase.auth.signInWithPassword({email:u+"@"+CONFIG.staffDomain,password:pw});
+    setBusy(false);
+    if(error){setErr(error.message==="Invalid login credentials"?"Incorrect username or password.":error.message);setPw("");return;}
+    if(!roleFromSession(data.session)){await supabase.auth.signOut();setErr("This account has no staff access.");setPw("");}
   };
 
   return (
@@ -529,15 +557,23 @@ function StaffLogin({onLogin, mode}) {
           <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,letterSpacing:3,color:T.charcoal,textTransform:"capitalize"}}>{mode} Login</div>
         </div>
         <div style={{background:T.white,border:"1px solid #E8E8E8",borderRadius:14,padding:26}}>
+          <FieldLabel>Username</FieldLabel>
+          <input value={username}
+            onChange={e=>{setUsername(e.target.value);setErr("");}}
+            onKeyDown={e=>e.key==="Enter"&&tryLogin()}
+            autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+            placeholder="username"
+            style={{...S.input,marginBottom:12}}
+            autoFocus/>
           <FieldLabel>Password</FieldLabel>
           <input type="password" value={pw}
-            onChange={e=>{setPw(e.target.value);setErr(false);}}
+            onChange={e=>{setPw(e.target.value);setErr("");}}
             onKeyDown={e=>e.key==="Enter"&&tryLogin()}
+            autoComplete="current-password"
             placeholder="••••••••"
-            style={{...S.input,marginBottom:err?8:14,borderColor:err?T.red:"#E8E8E8"}}
-            autoFocus/>
-          {err&&<div style={{fontSize:12,color:T.red,marginBottom:12}}>Incorrect password. Try again.</div>}
-          <button className="gold-btn" onClick={tryLogin} style={{...S.goldBtn,width:"100%"}}>Enter</button>
+            style={{...S.input,marginBottom:err?8:14,borderColor:err?T.red:"#E8E8E8"}}/>
+          {err&&<div style={{fontSize:12,color:T.red,marginBottom:12}}>{err}</div>}
+          <button className="gold-btn" onClick={tryLogin} disabled={busy} style={{...S.goldBtn,width:"100%",opacity:busy?0.6:1}}>{busy?"Signing in…":"Enter"}</button>
         </div>
         <button onClick={()=>navigate("/")} style={{width:"100%",background:"transparent",border:"1px solid #E8E8E8",color:T.charcoal,padding:"11px",cursor:"pointer",fontSize:13,marginTop:8,fontFamily:"'Jost',sans-serif",borderRadius:8}}>← Back to Home</button>
       </div>
@@ -584,7 +620,7 @@ function LandingPage() {
 function SignOutButton({onLogout,role}) {
   const navigate = useNavigate();
   return (
-    <button onClick={()=>{onLogout();navigate("/"+role);}} style={{background:"transparent",border:"1px solid rgba(255,255,255,.2)",color:"#888",padding:"5px 13px",borderRadius:20,cursor:"pointer",fontSize:12,fontFamily:"'Jost',sans-serif"}}>Sign Out</button>
+    <button onClick={async()=>{await onLogout();navigate("/"+role);}} style={{background:"transparent",border:"1px solid rgba(255,255,255,.2)",color:"#888",padding:"5px 13px",borderRadius:20,cursor:"pointer",fontSize:12,fontFamily:"'Jost',sans-serif"}}>Sign Out</button>
   );
 }
 /* ════════════════ APP SHELL ════════════════ */
