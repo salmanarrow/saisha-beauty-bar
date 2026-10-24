@@ -1724,17 +1724,24 @@ function ServicesTab({customServices,saveService,deleteService,toggleService}) {
   const [search,setSearch]=useState("");
   const migrated=customServices.some(s=>s.legacy_id!=null);
   const categories=useMemo(()=>[...new Set([...(migrated?[]:BASE_SERVICES.map(s=>s.category)),...customServices.map(s=>s.category)])],[customServices,migrated]);
+  const [openCats,setOpenCats]=useState({});
+  const toggleCat=(cat)=>setOpenCats(prev=>({...prev,[cat]:!prev[cat]}));
   const q=search.toLowerCase();
   const matches=customServices.filter(s=>s.name.toLowerCase().includes(q)||s.category.toLowerCase().includes(q));
-  const active=matches.filter(s=>s.active), hidden=matches.filter(s=>!s.active);
-  const byCategory=(list)=>categories.map(cat=>[cat,list.filter(s=>s.category===cat)]).filter(([,l])=>l.length>0);
-  const row=(sv,inactive)=>(
-    <div key={sv.id} style={{background:T.white,border:"1px solid #E8E8E8",borderRadius:12,padding:"13px 17px",display:"flex",alignItems:"center",gap:13,flexWrap:"wrap",opacity:inactive?0.7:1}}>
-      <div style={{flex:1,minWidth:150}}>
-        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,color:T.charcoal}}>{sv.name}</div>
-        <div style={{fontSize:11,color:T.grayLight}}>{sv.category}{Number(sv.duration)>0?" · "+sv.duration+" min":""}</div>
+  // Each category holds all its services; hidden ones stay in place, dimmed
+  const groups=categories.map(cat=>[cat,matches.filter(s=>s.category===cat)]).filter(([,l])=>l.length>0);
+  // Same rule as the booking page: searching opens every matching category
+  const isCatOpen=(cat)=>!!openCats[cat]||search.length>0;
+  const row=(sv,inactive,last)=>(
+    <div key={sv.id} style={{background:T.white,borderBottom:last?"none":"1px solid #F5F5F5",padding:"12px 16px",display:"flex",alignItems:"center",gap:13,flexWrap:"wrap"}}>
+      <div style={{flex:1,minWidth:150,opacity:inactive?0.55:1}}>
+        <div style={{display:"flex",alignItems:"center",gap:7}}>
+          <div style={{fontSize:13,color:T.charcoal}}>{sv.name}</div>
+          {inactive&&<span style={{fontSize:9,letterSpacing:1,color:T.grayLight,background:T.parchment,padding:"1px 6px",borderRadius:10,border:"1px solid #E8E8E8",textTransform:"uppercase"}}>Hidden</span>}
+        </div>
+        {Number(sv.duration)>0&&<div style={{fontSize:11,color:T.grayLight,marginTop:1}}>{sv.duration} min</div>}
       </div>
-      <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:17,color:T.charcoal}}>{fmt(sv.price)}</div>
+      <div style={{fontSize:14,fontFamily:"'Cormorant Garamond',serif",color:T.charcoal,opacity:inactive?0.55:1}}>{fmt(sv.price)}</div>
       <div style={{display:"flex",gap:5}}>
         <button className="outline-btn" onClick={()=>toggleService(sv.id,!sv.active)} style={{...S.outlineBtn,fontSize:11,padding:"4px 9px",color:inactive?T.green:T.grayLight,borderColor:inactive?"#A8D4B0":"#E8E8E8"}}>{inactive?"Show":"Hide"}</button>
         <button className="outline-btn" onClick={()=>setModal(sv)} style={{...S.outlineBtn,fontSize:11,padding:"4px 9px"}}>Edit</button>
@@ -1749,13 +1756,36 @@ function ServicesTab({customServices,saveService,deleteService,toggleService}) {
       {!migrated&&<div style={{background:"#FFFDF7",border:"1px solid rgba(201,168,76,.35)",borderRadius:10,padding:"9px 13px",marginBottom:14,fontSize:13,color:T.charcoal}}>The original menu hasn't been copied here yet, so only services you've added are listed. The booking page still shows the full original menu.</div>}
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search services…" style={{...S.input,marginBottom:16}}/>
       {matches.length===0&&<Empty icon="✦" text={customServices.length===0?"No services yet":"No services match"}/>}
-      {byCategory(active).map(([cat,list])=>(
-        <div key={cat} style={{marginBottom:18}}>
-          <div style={{fontSize:9,letterSpacing:3,textTransform:"uppercase",color:T.gold,marginBottom:10}}>{cat} · {list.length}</div>
-          <div style={{display:"grid",gap:9}}>{list.map(sv=>row(sv,false))}</div>
-        </div>
-      ))}
-      {hidden.length>0&&<div><div style={{fontSize:9,letterSpacing:3,textTransform:"uppercase",color:T.grayLight,marginBottom:10}}>Hidden · {hidden.length}</div><div style={{display:"grid",gap:9}}>{hidden.map(sv=>row(sv,true))}</div></div>}
+      {/* Category dropdowns — same look as the booking page */}
+      <div style={{display:"grid",gap:8}}>
+        {groups.map(([cat,list])=>{
+          const open=isCatOpen(cat);
+          const hiddenCount=list.filter(s=>!s.active).length;
+          return (
+            <div key={cat} style={{border:"1px solid #E8E8E8",borderRadius:12,overflow:"hidden",transition:"all .2s"}}>
+              <button onClick={()=>toggleCat(cat)} aria-expanded={open} style={{width:"100%",background:open?T.charcoal:T.white,border:"none",padding:"14px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all .25s"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{fontSize:13,color:open?T.white:T.charcoal,fontFamily:"'Jost',sans-serif",letterSpacing:".5px"}}>{cat}</div>
+                  {hiddenCount>0&&(
+                    <div style={{background:open?"rgba(255,255,255,.12)":T.parchment,color:open?"#aaa":T.grayLight,borderRadius:20,padding:"2px 8px",fontSize:11}}>
+                      {hiddenCount} hidden
+                    </div>
+                  )}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{fontSize:11,color:open?"#aaa":T.grayLight}}>{list.length} service{list.length!==1?"s":""}</div>
+                  <div style={{fontSize:16,color:open?T.gold:T.grayLight,transition:"transform .25s",transform:open?"rotate(180deg)":"rotate(0deg)",lineHeight:1}}>⌄</div>
+                </div>
+              </button>
+              {open&&(
+                <div style={{borderTop:"1px solid #E8E8E8",background:T.white}}>
+                  {list.map((sv,i)=>row(sv,!sv.active,i===list.length-1))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
       {modal!==null&&<ServiceModal svc={modal} categories={categories} onSave={saveService} onClose={()=>setModal(null)}/>}
     </div>
   );
