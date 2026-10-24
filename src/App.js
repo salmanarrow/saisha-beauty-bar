@@ -58,6 +58,8 @@ function titleCase(str) {
   return str.trim().split(" ").map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
 }
 
+// Built-in menu. Only used until the menu has been copied into the services table
+// (supabase/4-move-menu-to-table.sql); after that the owner manages it in the Services tab.
 const BASE_SERVICES = [
   {id:1,  name:"Party Makeup by Saisha",            price:15000,duration:90,  category:"Makeup"},
   {id:2,  name:"Senior Artist Party Makeup",        price:10000,duration:75,  category:"Makeup"},
@@ -215,12 +217,15 @@ export default function App() {
   const [loading,      setLoading]      = useState(false);
   const [toast,        setToast]        = useState(null);
 
+  // Once the built-in menu is in the table (rows with legacy_id), the table is the whole menu
+  const menuMigrated = customServices.some(sv => sv.legacy_id != null);
   const SERVICES = useMemo(() => [
-    ...BASE_SERVICES,
+    ...(menuMigrated ? [] : BASE_SERVICES),
     ...customServices
       .filter(sv => sv.active)
       .map(sv => ({
-        id:       "svc_" + sv.id,
+        // Copied services keep their old number so existing bookings still match
+        id:       sv.legacy_id ?? "svc_" + sv.id,
         name:     sv.name,
         price:    Number(sv.price),
         duration: Number(sv.duration) || 0,
@@ -237,7 +242,7 @@ export default function App() {
         isDeal:      true,
         description: d.description,
       })),
-  ], [deals, customServices]);
+  ], [deals, customServices, menuMigrated]);
 
   const showToast = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3500); };
   const updateManagerName = (n) => { setManagerName(n); localStorage.setItem(CONFIG.managerNameKey, n); };
@@ -277,7 +282,7 @@ export default function App() {
   const loadServices = async () => {
     const {data,error} = await supabase.from("services").select("*").order("created_at");
     if(error) { console.warn("Custom services not loaded:", error.message); return; }
-    setCustomServices(data||[]);
+    setCustomServices((data||[]).sort((a,b)=>(a.sort_order??1000)-(b.sort_order??1000)));
   };
 
   // Lightweight load for the public booking page — only needs deals + taken slots.
@@ -438,7 +443,7 @@ export default function App() {
     }
   };
   const deleteService = async (id) => {
-    if(!window.confirm("Delete this service? Past bookings and invoices keep their copy.")) return;
+    if(!window.confirm("Delete this service from the menu? Past bookings and invoices keep their copy. Tip: use Hide if you might bring it back.")) return;
     const {error}=await supabase.from("services").delete().eq("id",id);
     if(error){showToast("Failed to delete service","error");return;}
     setCustomServices(prev=>prev.filter(x=>x.id!==id)); showToast("Service removed");
@@ -1716,8 +1721,13 @@ function DealModal({deal,onSave,onClose}) {
 /* ════════════════ SERVICES TAB ════════════════ */
 function ServicesTab({customServices,saveService,deleteService,toggleService}) {
   const [modal,setModal]=useState(null);
-  const categories=useMemo(()=>[...new Set([...BASE_SERVICES.map(s=>s.category),...customServices.map(s=>s.category)])],[customServices]);
-  const active=customServices.filter(s=>s.active), hidden=customServices.filter(s=>!s.active);
+  const [search,setSearch]=useState("");
+  const migrated=customServices.some(s=>s.legacy_id!=null);
+  const categories=useMemo(()=>[...new Set([...(migrated?[]:BASE_SERVICES.map(s=>s.category)),...customServices.map(s=>s.category)])],[customServices,migrated]);
+  const q=search.toLowerCase();
+  const matches=customServices.filter(s=>s.name.toLowerCase().includes(q)||s.category.toLowerCase().includes(q));
+  const active=matches.filter(s=>s.active), hidden=matches.filter(s=>!s.active);
+  const byCategory=(list)=>categories.map(cat=>[cat,list.filter(s=>s.category===cat)]).filter(([,l])=>l.length>0);
   const row=(sv,inactive)=>(
     <div key={sv.id} style={{background:T.white,border:"1px solid #E8E8E8",borderRadius:12,padding:"13px 17px",display:"flex",alignItems:"center",gap:13,flexWrap:"wrap",opacity:inactive?0.7:1}}>
       <div style={{flex:1,minWidth:150}}>
@@ -1735,10 +1745,17 @@ function ServicesTab({customServices,saveService,deleteService,toggleService}) {
   return (
     <div style={{animation:"fadeUp .3s ease"}}>
       <SectionHeader title="Services" action={<button className="gold-btn" onClick={()=>setModal({})} style={S.goldBtn}>+ Add Service</button>}/>
-      <div style={{background:T.parchment,border:"1px solid #E8E8E8",borderRadius:10,padding:"9px 13px",marginBottom:18,fontSize:13,color:T.grayLight}}>✦ Services you add here appear on the booking page, in new bookings and on invoices. Hidden services stay saved but don't show on the menu.</div>
-      {customServices.length===0&&<Empty icon="✦" text="No added services yet"/>}
-      {active.length>0&&<div style={{marginBottom:18}}><div style={{fontSize:9,letterSpacing:3,textTransform:"uppercase",color:T.gold,marginBottom:10}}>On the menu</div><div style={{display:"grid",gap:9}}>{active.map(sv=>row(sv,false))}</div></div>}
-      {hidden.length>0&&<div><div style={{fontSize:9,letterSpacing:3,textTransform:"uppercase",color:T.grayLight,marginBottom:10}}>Hidden</div><div style={{display:"grid",gap:9}}>{hidden.map(sv=>row(sv,true))}</div></div>}
+      <div style={{background:T.parchment,border:"1px solid #E8E8E8",borderRadius:10,padding:"9px 13px",marginBottom:14,fontSize:13,color:T.grayLight}}>✦ This is the menu used on the booking page, in new bookings and on invoices. Hidden services stay saved but don't show on the menu. Changing a price doesn't change past bookings or invoices.</div>
+      {!migrated&&<div style={{background:"#FFFDF7",border:"1px solid rgba(201,168,76,.35)",borderRadius:10,padding:"9px 13px",marginBottom:14,fontSize:13,color:T.charcoal}}>The original menu hasn't been copied here yet, so only services you've added are listed. The booking page still shows the full original menu.</div>}
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search services…" style={{...S.input,marginBottom:16}}/>
+      {matches.length===0&&<Empty icon="✦" text={customServices.length===0?"No services yet":"No services match"}/>}
+      {byCategory(active).map(([cat,list])=>(
+        <div key={cat} style={{marginBottom:18}}>
+          <div style={{fontSize:9,letterSpacing:3,textTransform:"uppercase",color:T.gold,marginBottom:10}}>{cat} · {list.length}</div>
+          <div style={{display:"grid",gap:9}}>{list.map(sv=>row(sv,false))}</div>
+        </div>
+      ))}
+      {hidden.length>0&&<div><div style={{fontSize:9,letterSpacing:3,textTransform:"uppercase",color:T.grayLight,marginBottom:10}}>Hidden · {hidden.length}</div><div style={{display:"grid",gap:9}}>{hidden.map(sv=>row(sv,true))}</div></div>}
       {modal!==null&&<ServiceModal svc={modal} categories={categories} onSave={saveService} onClose={()=>setModal(null)}/>}
     </div>
   );
